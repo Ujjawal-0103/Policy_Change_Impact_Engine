@@ -33,6 +33,17 @@ export interface Document extends BaseEntity {
   storageUrl: string;
   uploadedById: string;
   orgId: string;
+  pageCount?: number;
+  uploadedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  org?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
 }
 
 export interface DocumentPage {
@@ -41,6 +52,17 @@ export interface DocumentPage {
   pageNumber: number;
   content: string;
   createdAt: string;
+}
+
+export interface DocumentWithDetails extends Document {
+  totalPages?: number;
+  pages: DocumentPage[];
+  policyVersions?: PolicyVersion[];
+}
+
+export interface DocumentUploadResponse extends Document {
+  totalPages: number;
+  pages: DocumentPage[];
 }
 
 // ─── Policies ────────────────────────────────────────────────────────────────

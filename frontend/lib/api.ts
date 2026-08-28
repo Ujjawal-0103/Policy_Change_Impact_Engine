@@ -6,7 +6,7 @@
  *
  * Usage:
  *   import { api } from '@/lib/api';
- *   const health = await api.get('/health');
+ *   const documents = await api.get('/documents');
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
@@ -26,18 +26,33 @@ async function request<T>(
   options: RequestInit = {},
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
+  const isFormData = options.body instanceof FormData;
+
+  const headers: HeadersInit = {
+    ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
+    ...options.headers,
+  };
 
   const response = await fetch(url, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
     ...options,
+    headers,
   });
 
   if (!response.ok) {
-    const text = await response.text().catch(() => response.statusText);
-    throw new ApiError(response.status, text);
+    let errorMsg = response.statusText;
+    try {
+      const errJson = await response.json();
+      if (Array.isArray(errJson.message)) {
+        errorMsg = errJson.message.join(', ');
+      } else if (errJson.message) {
+        errorMsg = errJson.message;
+      } else {
+        errorMsg = JSON.stringify(errJson);
+      }
+    } catch {
+      errorMsg = await response.text().catch(() => response.statusText);
+    }
+    throw new ApiError(response.status, errorMsg || 'An unknown network error occurred');
   }
 
   // 204 No Content — return undefined
@@ -54,6 +69,13 @@ export const api = {
     request<T>(path, {
       method: 'POST',
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      ...options,
+    }),
+
+  upload: <T>(path: string, formData: FormData, options?: RequestInit) =>
+    request<T>(path, {
+      method: 'POST',
+      body: formData,
       ...options,
     }),
 

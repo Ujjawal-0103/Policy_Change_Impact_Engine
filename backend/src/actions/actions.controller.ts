@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Post, Param } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { ActionsService } from './actions.service.js';
 
 // TODO: Implement action endpoints:
