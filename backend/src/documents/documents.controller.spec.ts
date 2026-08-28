@@ -12,6 +12,7 @@ describe('DocumentsController', () => {
       upload: vi.fn(),
       findAll: vi.fn(),
       findOne: vi.fn(),
+      analyze: vi.fn(),
     };
 
     controller = new DocumentsController(
@@ -78,4 +79,22 @@ describe('DocumentsController', () => {
       expect(result).toEqual(mockDoc);
     });
   });
+
+  describe('analyze', () => {
+    it('delegates to service.analyze with document id', async () => {
+      const mockAnalysis = {
+        documentId: 'doc_123',
+        documentTitle: 'Test Document',
+        totalPagesAnalyzed: 1,
+        requirementsCount: 1,
+        requirements: [],
+      };
+      serviceMock.analyze.mockResolvedValue(mockAnalysis);
+
+      const result = await controller.analyze('doc_123');
+      expect(serviceMock.analyze).toHaveBeenCalledWith('doc_123');
+      expect(result).toEqual(mockAnalysis);
+    });
+  });
 });
+

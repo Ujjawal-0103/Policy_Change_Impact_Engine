@@ -79,4 +79,14 @@ export class DocumentsController {
   async findOne(@Param('id') id: string) {
     return this.documentsService.findOne(id);
   }
+
+  /**
+   * Analyze a document's extracted pages using Gemini AI to extract
+   * structured requirements, suggested actions, deadlines, and responsibilities.
+   */
+  @Post(':id/analyze')
+  async analyze(@Param('id') id: string) {
+    return this.documentsService.analyze(id);
+  }
 }
+
