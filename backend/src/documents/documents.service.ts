@@ -7,6 +7,8 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
 import { PdfExtractorService } from './pdf-extractor.service.js';
+import { AiService } from '../ai/ai.service.js';
+import { DocumentAnalysisResponseDto } from '../ai/dto/analysis-result.dto.js';
 import { UploadDocumentDto } from './dto/upload-document.dto.js';
 import 'multer';
 
@@ -18,6 +20,7 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly cloudinaryService: CloudinaryService,
     private readonly pdfExtractorService: PdfExtractorService,
+    private readonly aiService: AiService,
   ) {}
 
   /**
@@ -249,4 +252,50 @@ export class DocumentsService {
       policyVersions: document.policyVersions,
     };
   }
+
+  /**
+   * Analyzes the extracted text of a document with Gemini AI to extract
+   * requirements, suggested actions, responsibilities, and deadlines.
+   * Does not persist analysis to the database in Sprint 3.
+   */
+  async analyze(id: string): Promise<DocumentAnalysisResponseDto> {
+    const document = await this.prisma.document.findUnique({
+      where: { id },
+      include: {
+        pages: {
+          orderBy: { pageNumber: 'asc' },
+        },
+      },
+    });
+
+    if (!document) {
+      throw new NotFoundException(`Document with ID "${id}" was not found.`);
+    }
+
+    const usablePages = document.pages.filter(
+      (page) => page.content && page.content.trim().length > 0,
+    );
+
+    if (usablePages.length === 0) {
+      throw new BadRequestException(
+        `Document "${document.title}" has no pages with usable extracted text to analyze.`,
+      );
+    }
+
+    const pageInputs = usablePages.map((p) => ({
+      pageNumber: p.pageNumber,
+      content: p.content,
+    }));
+
+    const requirements = await this.aiService.extractRequirements(pageInputs);
+
+    return {
+      documentId: document.id,
+      documentTitle: document.title,
+      totalPagesAnalyzed: usablePages.length,
+      requirementsCount: requirements.length,
+      requirements,
+    };
+  }
 }
+

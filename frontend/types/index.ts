@@ -158,3 +158,36 @@ export interface HealthResponse {
   service: string;
   timestamp: string;
 }
+
+// ─── AI Analysis (Sprint 3) ──────────────────────────────────────────────────
+
+export interface ExtractedAction {
+  title: string;
+  description: string;
+  priority: Priority;
+  deadline: string | null;
+  suggestedOwner: string | null;
+}
+
+export interface ExtractedRequirement {
+  title: string;
+  description: string;
+  priority: Priority;
+  deadline: string | null;
+  responsibleRole: string | null;
+  evidenceNeeded: string | null;
+  sourcePage: number;
+  sourceText: string;
+  confidence: number;
+  needsReview: boolean;
+  suggestedActions: ExtractedAction[];
+}
+
+export interface DocumentAnalysisResponse {
+  documentId: string;
+  documentTitle: string;
+  totalPagesAnalyzed: number;
+  requirementsCount: number;
+  requirements: ExtractedRequirement[];
+}
+

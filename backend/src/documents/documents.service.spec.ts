@@ -3,6 +3,7 @@ import { DocumentsService } from './documents.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
 import { PdfExtractorService } from './pdf-extractor.service.js';
+import { AiService } from '../ai/ai.service.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 describe('DocumentsService', () => {
@@ -10,6 +11,7 @@ describe('DocumentsService', () => {
   let prismaMock: any;
   let cloudinaryMock: any;
   let pdfExtractorMock: any;
+  let aiServiceMock: any;
 
   beforeEach(() => {
     prismaMock = {
@@ -39,10 +41,15 @@ describe('DocumentsService', () => {
       extractPageAwareText: vi.fn(),
     };
 
+    aiServiceMock = {
+      extractRequirements: vi.fn(),
+    };
+
     service = new DocumentsService(
       prismaMock as unknown as PrismaService,
       cloudinaryMock as unknown as CloudinaryService,
       pdfExtractorMock as unknown as PdfExtractorService,
+      aiServiceMock as unknown as AiService,
     );
   });
 
@@ -200,4 +207,79 @@ describe('DocumentsService', () => {
       expect(result.pages).toHaveLength(1);
     });
   });
+
+  describe('analyze', () => {
+    it('throws NotFoundException if document does not exist', async () => {
+      prismaMock.document.findUnique.mockResolvedValue(null);
+      await expect(service.analyze('non_existent')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws BadRequestException if document has no usable pages', async () => {
+      prismaMock.document.findUnique.mockResolvedValue({
+        id: 'doc_1',
+        title: 'Empty Policy',
+        pages: [{ pageNumber: 1, content: '   ' }],
+      });
+
+      await expect(service.analyze('doc_1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('successfully extracts requirements and returns analysis without DB writes', async () => {
+      prismaMock.document.findUnique.mockResolvedValue({
+        id: 'doc_1',
+        title: 'Security Policy',
+        pages: [
+          { pageNumber: 1, content: 'Section 1: MFA is mandatory.' },
+          { pageNumber: 2, content: 'Section 2: Annual audits required.' },
+        ],
+      });
+
+      const mockRequirements = [
+        {
+          title: 'Mandatory MFA',
+          description: 'MFA is mandatory.',
+          priority: 'HIGH',
+          deadline: null,
+          responsibleRole: 'IT Security',
+          evidenceNeeded: 'MFA logs',
+          sourcePage: 1,
+          sourceText: 'MFA is mandatory.',
+          confidence: 0.95,
+          needsReview: false,
+          suggestedActions: [
+            {
+              title: 'Enable MFA',
+              description: 'Configure SSO provider',
+              priority: 'HIGH',
+              deadline: null,
+              suggestedOwner: 'IT Admin',
+            },
+          ],
+        },
+      ];
+
+      aiServiceMock.extractRequirements.mockResolvedValue(mockRequirements);
+
+      const result = await service.analyze('doc_1');
+
+      expect(aiServiceMock.extractRequirements).toHaveBeenCalledWith([
+        { pageNumber: 1, content: 'Section 1: MFA is mandatory.' },
+        { pageNumber: 2, content: 'Section 2: Annual audits required.' },
+      ]);
+      expect(result).toEqual({
+        documentId: 'doc_1',
+        documentTitle: 'Security Policy',
+        totalPagesAnalyzed: 2,
+        requirementsCount: 1,
+        requirements: mockRequirements,
+      });
+      // Ensure no db write methods were called
+      expect(prismaMock.document.create).not.toHaveBeenCalled();
+    });
+  });
 });
+
