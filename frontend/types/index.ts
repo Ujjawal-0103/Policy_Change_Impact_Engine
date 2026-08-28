@@ -96,26 +96,80 @@ export interface Requirement extends BaseEntity {
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
 
-export type ActionStatus = 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'BLOCKED' | 'SKIPPED';
+export type ActionStatus =
+  | 'PENDING'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'OVERDUE'
+  | 'BLOCKED';
 
 export interface Action extends BaseEntity {
   requirementId: string;
   title: string;
   description: string;
   status: ActionStatus;
+  priority: Priority;
+  department: string | null;
   assignedToId: string | null;
   deadline: string | null;
+  computedStatus?: ActionStatus;
+  isOverdue?: boolean;
+  assignedTo?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+  requirement?: {
+    id: string;
+    title: string;
+    priority?: Priority;
+    deadline?: string | null;
+    policyVersionId?: string;
+    policyVersion?: {
+      id: string;
+      versionNumber: number;
+      policy?: { id: string; name: string };
+      document?: { id: string; title: string; storageUrl: string };
+    };
+  };
+  evidence?: Evidence[];
+  history?: ActionHistory[];
+  _count?: {
+    evidence: number;
+    history: number;
+  };
 }
 
 export interface ActionHistory {
   id: string;
   actionId: string;
-  userId: string;
+  userId: string | null;
   field: string;
   oldValue: string | null;
   newValue: string | null;
   note: string | null;
   createdAt: string;
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+  } | null;
+}
+
+export interface ActionStats {
+  totalActions: number;
+  pending: number;
+  inProgress: number;
+  completed: number;
+  overdue: number;
+  blocked: number;
+  skipped: number;
+  byPriority: {
+    LOW: number;
+    MEDIUM: number;
+    HIGH: number;
+    CRITICAL: number;
+  };
 }
 
 // ─── Evidence ────────────────────────────────────────────────────────────────

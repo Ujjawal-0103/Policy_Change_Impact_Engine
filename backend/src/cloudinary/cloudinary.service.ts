@@ -124,4 +124,56 @@ export class CloudinaryService {
       stream.pipe(uploadStream);
     });
   }
+
+  /**
+   * Uploads an evidence file (PDF, image, document) to Cloudinary.
+   */
+  async uploadEvidenceFile(file: Express.Multer.File): Promise<CloudinaryUploadResult> {
+    const isReady = this.initCloudinary();
+
+    const originalName = file.originalname || 'evidence_file';
+    const sanitizedFilename = originalName.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const publicId = `evidence/${Date.now()}_${sanitizedFilename}`;
+
+    if (!isReady) {
+      const fallbackUrl = `http://localhost:3001/actions/evidence-preview/${Date.now()}_${sanitizedFilename}`;
+      this.logger.warn(
+        `Cloudinary credentials not active. Using development fallback URL for evidence: ${fallbackUrl}`,
+      );
+      return {
+        url: fallbackUrl,
+        publicId,
+      };
+    }
+
+    return new Promise<CloudinaryUploadResult>((resolve, reject) => {
+      const uploadStream = cloudinary.uploader.upload_stream(
+        {
+          resource_type: 'auto',
+          public_id: publicId,
+          use_filename: true,
+          unique_filename: false,
+        },
+        (error, result?: UploadApiResponse) => {
+          if (error || !result) {
+            this.logger.error(
+              `Cloudinary evidence upload error: ${error?.message ?? 'Unknown error'}`,
+            );
+            return reject(
+              new Error(`Cloudinary evidence upload failed: ${error?.message ?? 'Unknown error'}`),
+            );
+          }
+
+          this.logger.log(`Cloudinary evidence upload successful: ${result.secure_url}`);
+          resolve({
+            url: result.secure_url || result.url,
+            publicId: result.public_id,
+          });
+        },
+      );
+
+      const stream = Readable.from(file.buffer);
+      stream.pipe(uploadStream);
+    });
+  }
 }
