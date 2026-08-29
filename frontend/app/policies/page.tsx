@@ -1,27 +1,207 @@
-import type { Metadata } from 'next';
+'use client';
 
-export const metadata: Metadata = { title: 'Policies' };
+import React, { useState, useEffect } from 'react';
+import { api, ApiError } from '@/lib/api';
+import type { Policy, PolicyVersion } from '@/types';
+import { PolicyList } from '@/components/policies/PolicyList';
+import { CreatePolicyModal } from '@/components/policies/CreatePolicyModal';
+import { NewVersionModal } from '@/components/policies/NewVersionModal';
+import { PolicyDetailsModal } from '@/components/policies/PolicyDetailsModal';
+import { useRouter } from 'next/navigation';
 
 export default function PoliciesPage() {
+  const router = useRouter();
+  const [policies, setPolicies] = useState<Policy[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Modals state
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [newVersionPolicy, setNewVersionPolicy] = useState<Policy | null>(null);
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
+
+  const fetchPolicies = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const data = await api.get<Policy[]>('/policies');
+      setPolicies(data);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not fetch policies.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPolicies();
+  }, []);
+
+  const handlePolicyCreated = (newPolicy: Policy) => {
+    fetchPolicies();
+    setSelectedPolicyId(newPolicy.id);
+  };
+
+  const handleVersionCreated = (version: PolicyVersion) => {
+    fetchPolicies();
+    if (newVersionPolicy) {
+      setSelectedPolicyId(newVersionPolicy.id);
+    }
+  };
+
+  const handleCompare = (policy: Policy) => {
+    if (policy.versions && policy.versions.length >= 2) {
+      const sorted = [...policy.versions].sort((a, b) => a.versionNumber - b.versionNumber);
+      const fromVer = sorted[0].id;
+      const toVer = sorted[sorted.length - 1].id;
+      router.push(`/changes?policyId=${policy.id}&fromVersionId=${fromVer}&toVersionId=${toVer}`);
+    } else {
+      router.push(`/changes?policyId=${policy.id}`);
+    }
+  };
+
+  // Metrics calculation
+  const totalVersions = policies.reduce((sum, p) => sum + (p.versionCount || p.versions?.length || 0), 0);
+  const totalRequirements = policies.reduce((sum, p) => sum + (p.totalRequirements || 0), 0);
+  const totalChanges = policies.reduce((sum, p) => sum + (p.changeCount || 0), 0);
+
   return (
     <>
-      <div style={{ marginBottom: '2rem' }}>
-        <h1 className="page-title">Policies</h1>
-        <p className="page-subtitle">
-          Manage policy sets and track versions over time.
-        </p>
+      {/* Page Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '1.75rem', gap: '1rem', flexWrap: 'wrap' }}>
+        <div>
+          <h1 className="page-title">Policy & Version Management</h1>
+          <p className="page-subtitle">
+            Manage governing policy sets, maintain chronological version history, and extract AI compliance requirements.
+          </p>
+        </div>
+        <button
+          onClick={() => setIsCreateModalOpen(true)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem',
+            padding: '0.625rem 1.25rem',
+            backgroundColor: '#2563eb',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '0.375rem',
+            fontSize: '0.875rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+          }}
+        >
+          <svg style={{ width: '1.125rem', height: '1.125rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Create Policy
+        </button>
       </div>
 
-      <div className="placeholder-state">
-        <svg className="placeholder-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-        </svg>
-        <p className="placeholder-title">No policies yet</p>
-        <p className="placeholder-desc">
-          Policy management and version tracking will be implemented after document upload.
-        </p>
+      {/* Metric Cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem 1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+            Tracked Policies
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', marginTop: '0.25rem' }}>
+            {policies.length}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem 1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+            Total Versions
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#16a34a', marginTop: '0.25rem' }}>
+            {totalVersions}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem 1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+            Active Requirements
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#2563eb', marginTop: '0.25rem' }}>
+            {totalRequirements}
+          </div>
+        </div>
+
+        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem 1.25rem' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', textTransform: 'uppercase' }}>
+            Version Diffs Tracked
+          </span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, color: '#d97706', marginTop: '0.25rem' }}>
+            {totalChanges}
+          </div>
+        </div>
       </div>
+
+      {error && (
+        <div
+          style={{
+            backgroundColor: '#fef2f2',
+            border: '1px solid #fecaca',
+            color: '#991b1b',
+            padding: '0.875rem 1.25rem',
+            borderRadius: '0.5rem',
+            fontSize: '0.875rem',
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          }}
+        >
+          <span>{error}</span>
+          <button
+            onClick={fetchPolicies}
+            style={{
+              background: '#ffffff',
+              border: '1px solid #fecaca',
+              padding: '0.25rem 0.625rem',
+              borderRadius: '0.25rem',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Policy List Component */}
+      <PolicyList
+        policies={policies}
+        isLoading={isLoading}
+        onSelectPolicy={(id) => setSelectedPolicyId(id)}
+        onNewVersion={(policy) => setNewVersionPolicy(policy)}
+        onCompare={(policy) => handleCompare(policy)}
+        onCreatePolicy={() => setIsCreateModalOpen(true)}
+      />
+
+      {/* Create Policy Modal */}
+      <CreatePolicyModal
+        isOpen={isCreateModalOpen}
+        onClose={() => setIsCreateModalOpen(false)}
+        onSuccess={handlePolicyCreated}
+      />
+
+      {/* New Version Modal */}
+      <NewVersionModal
+        policy={newVersionPolicy}
+        isOpen={Boolean(newVersionPolicy)}
+        onClose={() => setNewVersionPolicy(null)}
+        onSuccess={handleVersionCreated}
+      />
+
+      {/* Policy Details / Inspector Modal */}
+      <PolicyDetailsModal
+        policyId={selectedPolicyId}
+        onClose={() => setSelectedPolicyId(null)}
+        onNewVersionClick={(policy) => setNewVersionPolicy(policy)}
+      />
     </>
   );
 }
