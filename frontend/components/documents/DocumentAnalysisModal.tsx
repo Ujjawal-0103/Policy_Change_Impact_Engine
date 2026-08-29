@@ -1,7 +1,8 @@
 'use client';
 
-import React from 'react';
-import type { DocumentAnalysisResponse, Priority } from '@/types';
+import React, { useState } from 'react';
+import type { DocumentAnalysisResponse, Priority, Action } from '@/types';
+import { CreateActionModal } from '@/components/actions/CreateActionModal';
 
 interface DocumentAnalysisModalProps {
   analysis: DocumentAnalysisResponse | null;
@@ -9,6 +10,23 @@ interface DocumentAnalysisModalProps {
 }
 
 export function DocumentAnalysisModal({ analysis, onClose }: DocumentAnalysisModalProps) {
+  const [createModalConfig, setCreateModalConfig] = useState<{
+    isOpen: boolean;
+    title: string;
+    description: string;
+    priority: Priority;
+    department: string;
+    deadline: string;
+  }>({
+    isOpen: false,
+    title: '',
+    description: '',
+    priority: 'MEDIUM',
+    department: '',
+    deadline: '',
+  });
+  const [createdToast, setCreatedToast] = useState<string | null>(null);
+
   if (!analysis) return null;
 
   const { documentTitle, totalPagesAnalyzed, requirementsCount, requirements } = analysis;
@@ -426,10 +444,9 @@ export function DocumentAnalysisModal({ analysis, onClose }: DocumentAnalysisMod
                               <p style={{ margin: 0, color: '#475569', fontSize: '0.75rem', lineHeight: 1.4 }}>
                                 {action.description}
                               </p>
-                              {(action.suggestedOwner || action.deadline) && (
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '0.5rem', paddingTop: '0.375rem', borderTop: '1px dashed #e2e8f0' }}>
                                 <div
                                   style={{
-                                    marginTop: '0.375rem',
                                     display: 'flex',
                                     gap: '0.75rem',
                                     fontSize: '0.6875rem',
@@ -443,7 +460,33 @@ export function DocumentAnalysisModal({ analysis, onClose }: DocumentAnalysisMod
                                     <span>📅 Target: {action.deadline}</span>
                                   )}
                                 </div>
-                              )}
+
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setCreateModalConfig({
+                                      isOpen: true,
+                                      title: action.title,
+                                      description: action.description,
+                                      priority: action.priority,
+                                      department: action.suggestedOwner || req.responsibleRole || '',
+                                      deadline: action.deadline || req.deadline || '',
+                                    })
+                                  }
+                                  style={{
+                                    padding: '0.2rem 0.5rem',
+                                    backgroundColor: '#2563eb',
+                                    color: '#ffffff',
+                                    border: 'none',
+                                    borderRadius: '0.25rem',
+                                    fontSize: '0.6875rem',
+                                    fontWeight: 600,
+                                    cursor: 'pointer',
+                                  }}
+                                >
+                                  + Create Action
+                                </button>
+                              </div>
                             </div>
                           );
                         })}
@@ -462,10 +505,17 @@ export function DocumentAnalysisModal({ analysis, onClose }: DocumentAnalysisMod
             padding: '1rem 1.5rem',
             borderTop: '1px solid #e2e8f0',
             display: 'flex',
-            justifyContent: 'flex-end',
+            alignItems: 'center',
+            justifyContent: 'space-between',
             backgroundColor: '#ffffff',
           }}
         >
+          {createdToast ? (
+            <div style={{ fontSize: '0.8125rem', color: '#16a34a', fontWeight: 600 }}>
+              ✓ {createdToast}
+            </div>
+          ) : <div />}
+
           <button
             type="button"
             onClick={onClose}
@@ -484,6 +534,21 @@ export function DocumentAnalysisModal({ analysis, onClose }: DocumentAnalysisMod
           </button>
         </div>
       </div>
+
+      {/* Create Action Modal */}
+      <CreateActionModal
+        isOpen={createModalConfig.isOpen}
+        initialTitle={createModalConfig.title}
+        initialDescription={createModalConfig.description}
+        initialPriority={createModalConfig.priority}
+        initialDepartment={createModalConfig.department}
+        initialDeadline={createModalConfig.deadline}
+        onClose={() => setCreateModalConfig((prev) => ({ ...prev, isOpen: false }))}
+        onSuccess={(action) => {
+          setCreatedToast(`Action "${action.title}" created successfully!`);
+          setTimeout(() => setCreatedToast(null), 4000);
+        }}
+      />
     </div>
   );
 }

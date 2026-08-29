@@ -13,19 +13,19 @@ datasource db {
 // ─── User & Organization ─────────────────────────────────────────────────────
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+  id        String        @id @default(cuid())
+  email     String        @unique
   name      String
-  password  String   // Hashed — never store plain text
+  password  String // Hashed — never store plain text
   orgId     String?
   org       Organization? @relation(fields: [orgId], references: [id])
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
 
   // Relations
-  documents     Document[]
-  assignedActions Action[]   @relation("AssignedActions")
-  actionHistory ActionHistory[]
+  documents       Document[]
+  assignedActions Action[]        @relation("AssignedActions")
+  actionHistory   ActionHistory[]
 }
 
 model Organization {
@@ -47,15 +47,15 @@ model Document {
   title        String
   originalName String
   mimeType     String
-  storageUrl   String   // Cloudinary URL
+  storageUrl   String // Cloudinary URL
   uploadedById String
   orgId        String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  uploadedBy  User         @relation(fields: [uploadedById], references: [id])
-  org         Organization @relation(fields: [orgId], references: [id])
-  pages       DocumentPage[]
+  uploadedBy     User            @relation(fields: [uploadedById], references: [id])
+  org            Organization    @relation(fields: [orgId], references: [id])
+  pages          DocumentPage[]
   policyVersions PolicyVersion[]
 }
 
@@ -66,7 +66,7 @@ model DocumentPage {
   content    String   @db.Text // Raw extracted text — populated later by AI
   createdAt  DateTime @default(now())
 
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 }
 
 // ─── Policies & Versions ─────────────────────────────────────────────────────
@@ -79,22 +79,22 @@ model Policy {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  org         Organization   @relation(fields: [orgId], references: [id])
-  versions    PolicyVersion[]
-  changes     PolicyChange[]
+  org      Organization    @relation(fields: [orgId], references: [id])
+  versions PolicyVersion[]
+  changes  PolicyChange[]
 }
 
 model PolicyVersion {
-  id           String   @id @default(cuid())
-  policyId     String
+  id            String              @id @default(cuid())
+  policyId      String
   versionNumber Int
-  documentId   String
+  documentId    String
   status        PolicyVersionStatus @default(DRAFT)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
 
-  policy       Policy       @relation(fields: [policyId], references: [id])
-  document     Document     @relation(fields: [documentId], references: [id])
+  policy       Policy         @relation(fields: [policyId], references: [id])
+  document     Document       @relation(fields: [documentId], references: [id])
   requirements Requirement[]
   changesFrom  PolicyChange[] @relation("ChangeFromVersion")
   changesTo    PolicyChange[] @relation("ChangeToVersion")
@@ -111,17 +111,17 @@ enum PolicyVersionStatus {
 // ─── Requirements & Actions ───────────────────────────────────────────────────
 
 model Requirement {
-  id              String   @id @default(cuid())
+  id              String    @id @default(cuid())
   policyVersionId String
   title           String
-  description     String   @db.Text
+  description     String    @db.Text
   deadline        DateTime?
-  priority        Priority @default(MEDIUM)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  priority        Priority  @default(MEDIUM)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  policyVersion   PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
-  actions         Action[]
+  policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
+  actions       Action[]
 }
 
 enum Priority {
@@ -137,25 +137,27 @@ model Action {
   title         String
   description   String       @db.Text
   status        ActionStatus @default(PENDING)
+  priority      Priority     @default(MEDIUM)
+  department    String?
   assignedToId  String?
   deadline      DateTime?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
-  requirement   Requirement  @relation(fields: [requirementId], references: [id], onDelete: Cascade)
-  assignedTo    User?        @relation("AssignedActions", fields: [assignedToId], references: [id])
-  evidence      Evidence[]
-  history       ActionHistory[]
-  dependencies  ActionDependency[] @relation("ActionDeps")
-  dependents    ActionDependency[] @relation("DependentActions")
+  requirement  Requirement        @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  assignedTo   User?              @relation("AssignedActions", fields: [assignedToId], references: [id])
+  evidence     Evidence[]
+  history      ActionHistory[]
+  dependencies ActionDependency[] @relation("ActionDeps")
+  dependents   ActionDependency[] @relation("DependentActions")
 }
 
 enum ActionStatus {
   PENDING
   IN_PROGRESS
   COMPLETED
+  OVERDUE
   BLOCKED
-  SKIPPED
 }
 
 model ActionDependency {
@@ -163,8 +165,8 @@ model ActionDependency {
   actionId    String // The action that depends on another
   dependsOnId String // The action it depends on
 
-  action      Action @relation("ActionDeps",      fields: [actionId],    references: [id], onDelete: Cascade)
-  dependsOn   Action @relation("DependentActions", fields: [dependsOnId], references: [id], onDelete: Cascade)
+  action    Action @relation("ActionDeps", fields: [actionId], references: [id], onDelete: Cascade)
+  dependsOn Action @relation("DependentActions", fields: [dependsOnId], references: [id], onDelete: Cascade)
 
   @@unique([actionId, dependsOnId])
 }
@@ -176,10 +178,10 @@ model Evidence {
   actionId    String
   title       String
   description String?
-  fileUrl     String?  // Cloudinary URL
+  fileUrl     String? // Cloudinary URL
   createdAt   DateTime @default(now())
 
-  action      Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
 }
 
 // ─── Policy Changes & Impact ─────────────────────────────────────────────────
@@ -194,10 +196,10 @@ model PolicyChange {
   affectedSection String?
   createdAt       DateTime   @default(now())
 
-  policy          Policy        @relation(fields: [policyId], references: [id])
-  fromVersion     PolicyVersion @relation("ChangeFromVersion", fields: [fromVersionId], references: [id])
-  toVersion       PolicyVersion @relation("ChangeToVersion",   fields: [toVersionId],   references: [id])
-  impacts         Impact[]
+  policy      Policy        @relation(fields: [policyId], references: [id])
+  fromVersion PolicyVersion @relation("ChangeFromVersion", fields: [fromVersionId], references: [id])
+  toVersion   PolicyVersion @relation("ChangeToVersion", fields: [toVersionId], references: [id])
+  impacts     Impact[]
 }
 
 enum ChangeType {
@@ -208,15 +210,15 @@ enum ChangeType {
 }
 
 model Impact {
-  id             String       @id @default(cuid())
+  id             String         @id @default(cuid())
   policyChangeId String
-  description    String       @db.Text
+  description    String         @db.Text
   severity       ImpactSeverity @default(MEDIUM)
   status         ImpactStatus   @default(IDENTIFIED)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  policyChange   PolicyChange @relation(fields: [policyChangeId], references: [id], onDelete: Cascade)
+  policyChange PolicyChange @relation(fields: [policyChangeId], references: [id], onDelete: Cascade)
 }
 
 enum ImpactSeverity {
@@ -238,13 +240,13 @@ enum ImpactStatus {
 model ActionHistory {
   id        String   @id @default(cuid())
   actionId  String
-  userId    String
-  field     String   // Which field changed
+  userId    String?
+  field     String // Which field changed
   oldValue  String?
   newValue  String?
   note      String?
   createdAt DateTime @default(now())
 
-  action    Action   @relation(fields: [actionId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id])
+  action Action @relation(fields: [actionId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
 }
