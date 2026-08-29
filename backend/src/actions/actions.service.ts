@@ -12,7 +12,7 @@ import { AssignActionDto } from './dto/assign-action.dto.js';
 import { CreateEvidenceDto } from './dto/create-evidence.dto.js';
 import { FilterActionDto } from './dto/filter-action.dto.js';
 import { ActionStatus, Priority, Prisma } from '@prisma/client';
-import 'multer';
+import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 
 @Injectable()
 export class ActionsService {
@@ -24,43 +24,15 @@ export class ActionsService {
   ) {}
 
   /**
-   * Helper: Resolves a default system user for audit tracking if not provided.
-   */
-  private async resolveDefaultUser(): Promise<string> {
-    const user = await this.prisma.user.findFirst({
-      where: { email: 'admin@policyengine.local' },
-    });
-    if (user) return user.id;
-
-    // Create default user if not yet initialized
-    const defaultOrg = await this.prisma.organization.findFirst({
-      where: { slug: 'default-org' },
-    }) || await this.prisma.organization.create({
-      data: { name: 'Default Organization', slug: 'default-org' },
-    });
-
-    const newUser = await this.prisma.user.create({
-      data: {
-        name: 'System Admin',
-        email: 'admin@policyengine.local',
-        password: 'system_default_password_hash',
-        orgId: defaultOrg.id,
-      },
-    });
-    return newUser.id;
-  }
-
-  /**
-   * Evaluates deterministic overdue status:
-   * If an action has a past deadline and is not COMPLETED,
-   * its calculated status is OVERDUE.
+   * Evaluates if an action is overdue based on deadline and status.
+   * If action is not COMPLETED and deadline < now, it is OVERDUE.
    */
   private computeEffectiveStatus(
     status: ActionStatus,
     deadline: Date | null,
   ): ActionStatus {
     if (status === ActionStatus.COMPLETED) {
-      return status;
+      return ActionStatus.COMPLETED;
     }
     if (deadline && new Date(deadline).getTime() < Date.now()) {
       return ActionStatus.OVERDUE;
@@ -69,10 +41,18 @@ export class ActionsService {
   }
 
   /**
-   * List all actions with optional filters for status, priority, department, requirementId, search.
+   * List all actions with optional filters scoped strictly to organization.
    */
-  async findAll(filter?: FilterActionDto) {
-    const where: Prisma.ActionWhereInput = {};
+  async findAll(filter: FilterActionDto | undefined, orgId: string) {
+    const where: Prisma.ActionWhereInput = {
+      requirement: {
+        policyVersion: {
+          policy: {
+            orgId: orgId,
+          },
+        },
+      },
+    };
 
     if (filter?.status) {
       where.status = filter.status;
@@ -105,6 +85,13 @@ export class ActionsService {
             priority: true,
             deadline: true,
             policyVersionId: true,
+            policyVersion: {
+              select: {
+                policy: {
+                  select: { id: true, name: true, orgId: true },
+                },
+              },
+            },
           },
         },
         assignedTo: {
@@ -141,10 +128,21 @@ export class ActionsService {
   }
 
   /**
-   * Get action KPIs and statistics for Dashboard and Actions overview.
+   * Get action KPIs and statistics strictly for the specified organization.
    */
-  async getStats() {
+  async getStats(orgId: string) {
+    const where: Prisma.ActionWhereInput = {
+      requirement: {
+        policyVersion: {
+          policy: {
+            orgId: orgId,
+          },
+        },
+      },
+    };
+
     const actions = await this.prisma.action.findMany({
+      where,
       select: {
         id: true,
         status: true,
@@ -157,10 +155,10 @@ export class ActionsService {
     let pending = 0;
     let inProgress = 0;
     let completed = 0;
-    let overdue = 0;
     let blocked = 0;
+    let overdue = 0;
 
-    const byPriority = {
+    const byPriority: Record<Priority, number> = {
       LOW: 0,
       MEDIUM: 0,
       HIGH: 0,
@@ -174,33 +172,40 @@ export class ActionsService {
 
       if (act.status === ActionStatus.COMPLETED) {
         completed++;
-      } else if (act.deadline && new Date(act.deadline).getTime() < now) {
-        // Deterministic overdue calculation
-        overdue++;
-      } else if (act.status === ActionStatus.IN_PROGRESS) {
-        inProgress++;
-      } else if (act.status === ActionStatus.BLOCKED) {
-        blocked++;
       } else {
-        pending++;
+        if (act.deadline && new Date(act.deadline).getTime() < now) {
+          overdue++;
+        }
+        if (act.status === ActionStatus.IN_PROGRESS) {
+          inProgress++;
+        } else if (act.status === ActionStatus.BLOCKED) {
+          blocked++;
+        } else if (act.status === ActionStatus.PENDING || act.status === ActionStatus.OVERDUE) {
+          pending++;
+        }
       }
     }
 
+    const totalActions = actions.length;
+    const completionRate =
+      totalActions > 0 ? Number(((completed / totalActions) * 100).toFixed(1)) : 0;
+
     return {
-      totalActions: actions.length,
+      totalActions,
       pending,
       inProgress,
       completed,
-      overdue,
       blocked,
+      overdue,
+      completionRate,
       byPriority,
     };
   }
 
   /**
-   * Retrieve a single action by ID including complete requirement, assignment, evidence, and audit history.
+   * Retrieve a single action by ID scoped strictly to organization.
    */
-  async findOne(id: string) {
+  async findOne(id: string, orgId: string) {
     const action = await this.prisma.action.findUnique({
       where: { id },
       include: {
@@ -211,7 +216,7 @@ export class ActionsService {
                 id: true,
                 versionNumber: true,
                 status: true,
-                policy: { select: { id: true, name: true } },
+                policy: { select: { id: true, name: true, orgId: true } },
                 document: { select: { id: true, title: true, storageUrl: true } },
               },
             },
@@ -264,7 +269,7 @@ export class ActionsService {
       },
     });
 
-    if (!action) {
+    if (!action || action.requirement?.policyVersion?.policy?.orgId !== orgId) {
       throw new NotFoundException(`Action with ID "${id}" was not found.`);
     }
 
@@ -280,32 +285,37 @@ export class ActionsService {
   }
 
   /**
-   * Create an organizational Action linked to an existing Requirement.
+   * Create an organizational Action linked to an existing Requirement in caller's organization.
    */
-  async create(dto: CreateActionDto) {
-    // 1. Verify Requirement exists
+  async create(dto: CreateActionDto, user: AuthenticatedUser) {
+    // 1. Verify Requirement exists and belongs to the user's organization
     const requirement = await this.prisma.requirement.findUnique({
       where: { id: dto.requirementId },
+      include: {
+        policyVersion: {
+          include: { policy: true },
+        },
+      },
     });
 
-    if (!requirement) {
+    if (!requirement || requirement.policyVersion?.policy?.orgId !== user.orgId) {
       throw new NotFoundException(
-        `Referenced requirement "${dto.requirementId}" does not exist. An Action must be linked to a valid Requirement.`,
+        `Referenced requirement "${dto.requirementId}" does not exist in your organization.`,
       );
     }
 
     // 2. Validate assignedToId if provided
     let assignedUserId: string | null = null;
     if (dto.assignedToId) {
-      const user = await this.prisma.user.findUnique({
+      const assignedUser = await this.prisma.user.findUnique({
         where: { id: dto.assignedToId },
       });
-      if (!user) {
+      if (!assignedUser || assignedUser.orgId !== user.orgId) {
         throw new BadRequestException(
-          `Assigned user with ID "${dto.assignedToId}" not found.`,
+          `Assigned user with ID "${dto.assignedToId}" not found in your organization.`,
         );
       }
-      assignedUserId = user.id;
+      assignedUserId = assignedUser.id;
     }
 
     // 3. Resolve priority and deadline
@@ -313,11 +323,8 @@ export class ActionsService {
     const deadline = dto.deadline ? new Date(dto.deadline) : requirement.deadline || null;
     const initialStatus = dto.status || ActionStatus.PENDING;
 
-    // 4. Resolve audit user ID
-    let auditUserId = dto.userId;
-    if (!auditUserId) {
-      auditUserId = await this.resolveDefaultUser();
-    }
+    // 4. Resolve audit user ID strictly from authenticated session
+    const auditUserId = user.userId;
 
     // 5. Create action and initial audit history entry
     const action = await this.prisma.action.create({
@@ -346,7 +353,7 @@ export class ActionsService {
             id: true,
             title: true,
             priority: true,
-            policyVersionId: true,
+            deadline: true,
           },
         },
         assignedTo: {
@@ -357,7 +364,11 @@ export class ActionsService {
           },
         },
         evidence: true,
-        history: true,
+        history: {
+          include: {
+            user: { select: { id: true, name: true } },
+          },
+        },
       },
     });
 
@@ -365,30 +376,38 @@ export class ActionsService {
       `Created Action "${action.title}" (${action.id}) linked to Requirement ${requirement.id}`,
     );
 
-    return action;
+    return {
+      ...action,
+      computedStatus: this.computeEffectiveStatus(action.status, action.deadline),
+      isOverdue:
+        action.status !== ActionStatus.COMPLETED &&
+        Boolean(action.deadline && new Date(action.deadline).getTime() < Date.now()),
+    };
   }
 
   /**
    * Update Action status with audit history tracking.
    */
-  async updateStatus(id: string, dto: UpdateActionStatusDto) {
+  async updateStatus(id: string, dto: UpdateActionStatusDto, user: AuthenticatedUser) {
     const existing = await this.prisma.action.findUnique({
       where: { id },
+      include: {
+        requirement: {
+          include: { policyVersion: { include: { policy: true } } },
+        },
+      },
     });
 
-    if (!existing) {
+    if (!existing || existing.requirement?.policyVersion?.policy?.orgId !== user.orgId) {
       throw new NotFoundException(`Action with ID "${id}" was not found.`);
     }
 
     // If status hasn't changed, return without creating duplicate history entries
     if (existing.status === dto.status) {
-      return this.findOne(id);
+      return this.findOne(id, user.orgId);
     }
 
-    let auditUserId = dto.userId;
-    if (!auditUserId) {
-      auditUserId = await this.resolveDefaultUser();
-    }
+    const auditUserId = user.userId;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // 1. Record history entry
@@ -435,28 +454,33 @@ export class ActionsService {
   /**
    * Assign Action to an owner user and/or department with audit history tracking.
    */
-  async assign(id: string, dto: AssignActionDto) {
+  async assign(id: string, dto: AssignActionDto, user: AuthenticatedUser) {
     const existing = await this.prisma.action.findUnique({
       where: { id },
-      include: { assignedTo: true },
+      include: {
+        assignedTo: true,
+        requirement: {
+          include: { policyVersion: { include: { policy: true } } },
+        },
+      },
     });
 
-    if (!existing) {
+    if (!existing || existing.requirement?.policyVersion?.policy?.orgId !== user.orgId) {
       throw new NotFoundException(`Action with ID "${id}" was not found.`);
     }
 
     let newAssignedUser = existing.assignedTo;
     if (dto.assignedToId !== undefined) {
       if (dto.assignedToId) {
-        const user = await this.prisma.user.findUnique({
+        const assignedUser = await this.prisma.user.findUnique({
           where: { id: dto.assignedToId },
         });
-        if (!user) {
+        if (!assignedUser || assignedUser.orgId !== user.orgId) {
           throw new BadRequestException(
-            `Assigned user with ID "${dto.assignedToId}" not found.`,
+            `Assigned user with ID "${dto.assignedToId}" not found in your organization.`,
           );
         }
-        newAssignedUser = user;
+        newAssignedUser = assignedUser;
       } else {
         newAssignedUser = null;
       }
@@ -465,10 +489,7 @@ export class ActionsService {
     const newDepartment =
       dto.department !== undefined ? dto.department?.trim() || null : existing.department;
 
-    let auditUserId = dto.userId;
-    if (!auditUserId) {
-      auditUserId = await this.resolveDefaultUser();
-    }
+    const auditUserId = user.userId;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Record assigned user history if changed
@@ -531,13 +552,19 @@ export class ActionsService {
   async addEvidence(
     id: string,
     dto: CreateEvidenceDto,
+    user: AuthenticatedUser,
     file?: Express.Multer.File,
   ) {
     const existing = await this.prisma.action.findUnique({
       where: { id },
+      include: {
+        requirement: {
+          include: { policyVersion: { include: { policy: true } } },
+        },
+      },
     });
 
-    if (!existing) {
+    if (!existing || existing.requirement?.policyVersion?.policy?.orgId !== user.orgId) {
       throw new NotFoundException(`Action with ID "${id}" was not found.`);
     }
 
@@ -548,10 +575,7 @@ export class ActionsService {
       fileUrl = uploadResult.url;
     }
 
-    let auditUserId = dto.userId;
-    if (!auditUserId) {
-      auditUserId = await this.resolveDefaultUser();
-    }
+    const auditUserId = user.userId;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const evidence = await tx.evidence.create({

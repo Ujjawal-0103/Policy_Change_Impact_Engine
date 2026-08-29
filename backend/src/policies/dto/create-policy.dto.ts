@@ -11,9 +11,5 @@ export class CreatePolicyDto {
 
   @IsString()
   @IsOptional()
-  orgId?: string;
-
-  @IsString()
-  @IsOptional()
   documentId?: string; // Optional: directly associate an initial uploaded document as Version 1
 }

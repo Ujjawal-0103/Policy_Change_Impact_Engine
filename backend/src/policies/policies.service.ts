@@ -28,31 +28,6 @@ export class PoliciesService {
   ) {}
 
   /**
-   * Helper: Resolves active organization ID or creates default.
-   */
-  private async resolveOrg(orgId?: string): Promise<string> {
-    if (orgId) {
-      const org = await this.prisma.organization.findUnique({
-        where: { id: orgId },
-      });
-      if (org) return org.id;
-    }
-
-    let defaultOrg = await this.prisma.organization.findFirst({
-      where: { slug: 'default-org' },
-    });
-    if (!defaultOrg) {
-      defaultOrg = await this.prisma.organization.create({
-        data: {
-          name: 'Default Organization',
-          slug: 'default-org',
-        },
-      });
-    }
-    return defaultOrg.id;
-  }
-
-  /**
    * Helper to map extracted AI requirements to Prisma requirements for a version.
    */
   private async extractAndSaveRequirements(
@@ -128,10 +103,9 @@ export class PoliciesService {
 
   /**
    * Creates a new policy and optionally registers Version 1 if documentId is provided.
+   * Scoped strictly to the authenticated organization.
    */
-  async create(dto: CreatePolicyDto) {
-    const orgId = await this.resolveOrg(dto.orgId);
-
+  async create(dto: CreatePolicyDto, orgId: string) {
     const policy = await this.prisma.policy.create({
       data: {
         name: dto.name.trim(),
@@ -142,8 +116,9 @@ export class PoliciesService {
 
     let version1 = null;
     if (dto.documentId) {
-      const document = await this.prisma.document.findUnique({
-        where: { id: dto.documentId },
+      // Validate document belongs to the same organization
+      const document = await this.prisma.document.findFirst({
+        where: { id: dto.documentId, orgId },
       });
       if (document) {
         version1 = await this.prisma.policyVersion.create({
@@ -163,14 +138,15 @@ export class PoliciesService {
       }
     }
 
-    return this.findOne(policy.id);
+    return this.findOne(policy.id, orgId);
   }
 
   /**
-   * Retrieves all policies with version counts, latest version info, and requirements.
+   * Retrieves all policies for the authenticated organization.
    */
-  async findAll() {
+  async findAll(orgId: string) {
     const policies = await this.prisma.policy.findMany({
+      where: { orgId },
       orderBy: { updatedAt: 'desc' },
       include: {
         versions: {
@@ -233,11 +209,11 @@ export class PoliciesService {
   }
 
   /**
-   * Retrieves a single policy by ID with all versions and requirements.
+   * Retrieves a single policy by ID scoped strictly to the organization.
    */
-  async findOne(id: string) {
-    const policy = await this.prisma.policy.findUnique({
-      where: { id },
+  async findOne(id: string, orgId: string) {
+    const policy = await this.prisma.policy.findFirst({
+      where: { id, orgId },
       include: {
         org: true,
         versions: {
@@ -277,11 +253,11 @@ export class PoliciesService {
   }
 
   /**
-   * Retrieves all versions of a specific policy.
+   * Retrieves all versions of a specific policy owned by the organization.
    */
-  async getVersions(policyId: string) {
-    const policy = await this.prisma.policy.findUnique({
-      where: { id: policyId },
+  async getVersions(policyId: string, orgId: string) {
+    const policy = await this.prisma.policy.findFirst({
+      where: { id: policyId, orgId },
     });
     if (!policy) {
       throw new NotFoundException(`Policy with ID "${policyId}" was not found.`);
@@ -315,11 +291,11 @@ export class PoliciesService {
   }
 
   /**
-   * Creates a new version for an existing policy, preserving all previous versions.
+   * Creates a new version for an existing organization policy.
    */
-  async createVersion(policyId: string, dto: CreateVersionDto) {
-    const policy = await this.prisma.policy.findUnique({
-      where: { id: policyId },
+  async createVersion(policyId: string, dto: CreateVersionDto, orgId: string) {
+    const policy = await this.prisma.policy.findFirst({
+      where: { id: policyId, orgId },
       include: {
         versions: { orderBy: { versionNumber: 'desc' } },
       },
@@ -329,12 +305,12 @@ export class PoliciesService {
       throw new NotFoundException(`Policy with ID "${policyId}" was not found.`);
     }
 
-    const document = await this.prisma.document.findUnique({
-      where: { id: dto.documentId },
+    const document = await this.prisma.document.findFirst({
+      where: { id: dto.documentId, orgId },
     });
     if (!document) {
       throw new NotFoundException(
-        `Document with ID "${dto.documentId}" was not found.`,
+        `Document with ID "${dto.documentId}" was not found in your organization.`,
       );
     }
 
@@ -402,9 +378,10 @@ export class PoliciesService {
     policyId: string,
     versionId: string,
     status: PolicyVersionStatus,
+    orgId: string,
   ) {
-    const policy = await this.prisma.policy.findUnique({
-      where: { id: policyId },
+    const policy = await this.prisma.policy.findFirst({
+      where: { id: policyId, orgId },
     });
     if (!policy) {
       throw new NotFoundException(`Policy with ID "${policyId}" was not found.`);
@@ -455,15 +432,14 @@ export class PoliciesService {
   }
 
   /**
-   * Compares two policy versions:
-   * 1. Fetches both versions and their requirements/documents.
-   * 2. Runs AI / deterministic version comparison.
-   * 3. Persists detected changes into PolicyChange table.
-   * 4. Returns structured comparison summary and itemized changes with source references.
+   * Compares two policy versions with strict organization ownership check on both versions.
    */
-  async compareVersions(dto: CompareVersionsDto) {
-    const fromVersion = await this.prisma.policyVersion.findUnique({
-      where: { id: dto.fromVersionId },
+  async compareVersions(dto: CompareVersionsDto, orgId: string) {
+    const fromVersion = await this.prisma.policyVersion.findFirst({
+      where: {
+        id: dto.fromVersionId,
+        policy: { orgId },
+      },
       include: {
         policy: true,
         document: {
@@ -477,12 +453,15 @@ export class PoliciesService {
 
     if (!fromVersion) {
       throw new NotFoundException(
-        `Baseline version with ID "${dto.fromVersionId}" was not found.`,
+        `Baseline version with ID "${dto.fromVersionId}" was not found in your organization.`,
       );
     }
 
-    const toVersion = await this.prisma.policyVersion.findUnique({
-      where: { id: dto.toVersionId },
+    const toVersion = await this.prisma.policyVersion.findFirst({
+      where: {
+        id: dto.toVersionId,
+        policy: { orgId },
+      },
       include: {
         policy: true,
         document: {
@@ -496,7 +475,7 @@ export class PoliciesService {
 
     if (!toVersion) {
       throw new NotFoundException(
-        `Target version with ID "${dto.toVersionId}" was not found.`,
+        `Target version with ID "${dto.toVersionId}" was not found in your organization.`,
       );
     }
 
@@ -527,7 +506,7 @@ export class PoliciesService {
     }
 
     this.logger.log(
-      `Comparing Policy "${policyName}": v${fromVersion.versionNumber} (${fromReqs.length} reqs) vs v${toVersion.versionNumber} (${toReqs.length} reqs)`,
+      `Comparing Policy "${policyName}" (Org ${orgId}): v${fromVersion.versionNumber} vs v${toVersion.versionNumber}`,
     );
 
     // Call AI Comparison Engine
@@ -638,10 +617,17 @@ export class PoliciesService {
   }
 
   /**
-   * Retrieves detected changes for a policy, optionally filtered by versions.
+   * Retrieves detected changes for an organization's policy.
    */
-  async getChanges(policyId: string, fromVersionId?: string, toVersionId?: string) {
-    const where: any = { policyId };
+  async getChanges(policyId: string, fromVersionId: string | undefined, toVersionId: string | undefined, orgId: string) {
+    const policy = await this.prisma.policy.findFirst({
+      where: { id: policyId, orgId },
+    });
+    if (!policy) {
+      throw new NotFoundException(`Policy with ID "${policyId}" was not found.`);
+    }
+
+    const where: any = { policyId, policy: { orgId } };
     if (fromVersionId) where.fromVersionId = fromVersionId;
     if (toVersionId) where.toVersionId = toVersionId;
 
@@ -661,11 +647,11 @@ export class PoliciesService {
   }
 
   /**
-   * Retrieves a single change by ID.
+   * Retrieves a single change by ID ensuring policy belongs to organization.
    */
-  async getChangeById(id: string) {
-    const change = await this.prisma.policyChange.findUnique({
-      where: { id },
+  async getChangeById(id: string, orgId: string) {
+    const change = await this.prisma.policyChange.findFirst({
+      where: { id, policy: { orgId } },
       include: {
         policy: true,
         fromVersion: {

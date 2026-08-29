@@ -12,8 +12,4 @@ export class AssignActionDto {
   @IsString()
   @IsOptional()
   note?: string;
-
-  @IsString()
-  @IsOptional()
-  userId?: string;
 }

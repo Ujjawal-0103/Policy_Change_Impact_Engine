@@ -1,15 +1,25 @@
 /**
  * Fetch-based API client for the Policy Change Impact Engine backend.
- *
- * Base URL is configured via NEXT_PUBLIC_API_URL environment variable.
- * Defaults to http://localhost:3001 for local development.
- *
- * Usage:
- *   import { api } from '@/lib/api';
- *   const documents = await api.get('/documents');
+ * Automatically injects JWT Bearer authentication and handles API errors.
  */
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+
+const TOKEN_KEY = 'pcie_auth_token';
+
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string | null): void {
+  if (typeof window === 'undefined') return;
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
 
 class ApiError extends Error {
   constructor(
@@ -27,10 +37,12 @@ async function request<T>(
 ): Promise<T> {
   const url = `${BASE_URL}${path}`;
   const isFormData = options.body instanceof FormData;
+  const token = getAuthToken();
 
-  const headers: HeadersInit = {
+  const headers: Record<string, string> = {
     ...(!isFormData ? { 'Content-Type': 'application/json' } : {}),
-    ...options.headers,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...((options.headers as Record<string, string>) || {}),
   };
 
   const response = await fetch(url, {
@@ -52,6 +64,13 @@ async function request<T>(
     } catch {
       errorMsg = await response.text().catch(() => response.statusText);
     }
+
+    if (response.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      // Clear invalid/expired token and notify
+      setAuthToken(null);
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
+
     throw new ApiError(response.status, errorMsg || 'An unknown network error occurred');
   }
 

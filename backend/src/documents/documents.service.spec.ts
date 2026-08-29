@@ -5,6 +5,7 @@ import { CloudinaryService } from '../cloudinary/cloudinary.service.js';
 import { PdfExtractorService } from './pdf-extractor.service.js';
 import { AiService } from '../ai/ai.service.js';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 
 describe('DocumentsService', () => {
   let service: DocumentsService;
@@ -12,6 +13,13 @@ describe('DocumentsService', () => {
   let cloudinaryMock: any;
   let pdfExtractorMock: any;
   let aiServiceMock: any;
+
+  const mockUser: AuthenticatedUser = {
+    userId: 'user_1',
+    orgId: 'org_1',
+    email: 'admin@policyengine.local',
+    name: 'Admin User',
+  };
 
   beforeEach(() => {
     prismaMock = {
@@ -29,6 +37,7 @@ describe('DocumentsService', () => {
         create: vi.fn(),
         findMany: vi.fn(),
         findUnique: vi.fn(),
+        findFirst: vi.fn(),
       },
     };
 
@@ -55,7 +64,7 @@ describe('DocumentsService', () => {
 
   describe('upload', () => {
     it('throws BadRequestException if no file provided', async () => {
-      await expect(service.upload(null as any, {})).rejects.toThrow(
+      await expect(service.upload(null as any, {}, mockUser)).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -68,7 +77,7 @@ describe('DocumentsService', () => {
         size: 5,
       } as Express.Multer.File;
 
-      await expect(service.upload(file, {})).rejects.toThrow(
+      await expect(service.upload(file, {}, mockUser)).rejects.toThrow(
         BadRequestException,
       );
     });
@@ -83,12 +92,12 @@ describe('DocumentsService', () => {
 
       pdfExtractorMock.isValidPdfBuffer.mockReturnValue(false);
 
-      await expect(service.upload(file, {})).rejects.toThrow(
+      await expect(service.upload(file, {}, mockUser)).rejects.toThrow(
         BadRequestException,
       );
     });
 
-    it('successfully uploads and stores document and pages', async () => {
+    it('successfully uploads and stores document and pages for authenticated organization', async () => {
       const file = {
         originalname: 'security-policy.pdf',
         mimetype: 'application/pdf',
@@ -107,17 +116,6 @@ describe('DocumentsService', () => {
           { pageNumber: 1, content: 'Page 1 text' },
           { pageNumber: 2, content: 'Page 2 text' },
         ],
-      });
-
-      prismaMock.organization.findFirst.mockResolvedValue({
-        id: 'org_1',
-        name: 'Default Org',
-        slug: 'default-org',
-      });
-      prismaMock.user.findFirst.mockResolvedValue({
-        id: 'user_1',
-        name: 'Admin User',
-        email: 'admin@policyengine.local',
       });
 
       const mockCreatedDoc = {
@@ -140,18 +138,25 @@ describe('DocumentsService', () => {
 
       prismaMock.document.create.mockResolvedValue(mockCreatedDoc);
 
-      const result = await service.upload(file, { title: 'Custom Title' });
+      const result = await service.upload(file, { title: 'Custom Title' }, mockUser);
 
       expect(result.id).toBe('doc_1');
       expect(result.title).toBe('Custom Title');
       expect(result.totalPages).toBe(2);
       expect(result.pages).toHaveLength(2);
-      expect(prismaMock.document.create).toHaveBeenCalled();
+      expect(prismaMock.document.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            uploadedById: 'user_1',
+            orgId: 'org_1',
+          }),
+        }),
+      );
     });
   });
 
   describe('findAll', () => {
-    it('returns a list of formatted documents', async () => {
+    it('returns a list of documents scoped to organization', async () => {
       prismaMock.document.findMany.mockResolvedValue([
         {
           id: 'doc_1',
@@ -169,21 +174,26 @@ describe('DocumentsService', () => {
         },
       ]);
 
-      const result = await service.findAll();
+      const result = await service.findAll('org_1');
       expect(result).toHaveLength(1);
       expect(result[0].pageCount).toBe(3);
+      expect(prismaMock.document.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { orgId: 'org_1' },
+        }),
+      );
     });
   });
 
   describe('findOne', () => {
-    it('throws NotFoundException if document does not exist', async () => {
-      prismaMock.document.findUnique.mockResolvedValue(null);
-      await expect(service.findOne('non_existent')).rejects.toThrow(
+    it('throws NotFoundException if document does not exist in organization', async () => {
+      prismaMock.document.findFirst.mockResolvedValue(null);
+      await expect(service.findOne('non_existent', 'org_1')).rejects.toThrow(
         NotFoundException,
       );
     });
 
-    it('returns document with pages when found', async () => {
+    it('returns document with pages when found in organization', async () => {
       const mockDoc = {
         id: 'doc_1',
         title: 'Doc 1',
@@ -199,9 +209,9 @@ describe('DocumentsService', () => {
         pages: [{ id: 'p1', pageNumber: 1, content: 'Text' }],
         policyVersions: [],
       };
-      prismaMock.document.findUnique.mockResolvedValue(mockDoc);
+      prismaMock.document.findFirst.mockResolvedValue(mockDoc);
 
-      const result = await service.findOne('doc_1');
+      const result = await service.findOne('doc_1', 'org_1');
       expect(result.id).toBe('doc_1');
       expect(result.pageCount).toBe(1);
       expect(result.pages).toHaveLength(1);
@@ -209,27 +219,27 @@ describe('DocumentsService', () => {
   });
 
   describe('analyze', () => {
-    it('throws NotFoundException if document does not exist', async () => {
-      prismaMock.document.findUnique.mockResolvedValue(null);
-      await expect(service.analyze('non_existent')).rejects.toThrow(
+    it('throws NotFoundException if document does not exist in organization', async () => {
+      prismaMock.document.findFirst.mockResolvedValue(null);
+      await expect(service.analyze('non_existent', 'org_1')).rejects.toThrow(
         NotFoundException,
       );
     });
 
     it('throws BadRequestException if document has no usable pages', async () => {
-      prismaMock.document.findUnique.mockResolvedValue({
+      prismaMock.document.findFirst.mockResolvedValue({
         id: 'doc_1',
         title: 'Empty Policy',
         pages: [{ pageNumber: 1, content: '   ' }],
       });
 
-      await expect(service.analyze('doc_1')).rejects.toThrow(
+      await expect(service.analyze('doc_1', 'org_1')).rejects.toThrow(
         BadRequestException,
       );
     });
 
     it('successfully extracts requirements and returns analysis without DB writes', async () => {
-      prismaMock.document.findUnique.mockResolvedValue({
+      prismaMock.document.findFirst.mockResolvedValue({
         id: 'doc_1',
         title: 'Security Policy',
         pages: [
@@ -264,7 +274,7 @@ describe('DocumentsService', () => {
 
       aiServiceMock.extractRequirements.mockResolvedValue(mockRequirements);
 
-      const result = await service.analyze('doc_1');
+      const result = await service.analyze('doc_1', 'org_1');
 
       expect(aiServiceMock.extractRequirements).toHaveBeenCalledWith([
         { pageNumber: 1, content: 'Section 1: MFA is mandatory.' },
@@ -277,9 +287,7 @@ describe('DocumentsService', () => {
         requirementsCount: 1,
         requirements: mockRequirements,
       });
-      // Ensure no db write methods were called
       expect(prismaMock.document.create).not.toHaveBeenCalled();
     });
   });
 });
-

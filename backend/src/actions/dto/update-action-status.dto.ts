@@ -9,8 +9,4 @@ export class UpdateActionStatusDto {
   @IsString()
   @IsOptional()
   note?: string;
-
-  @IsString()
-  @IsOptional()
-  userId?: string;
 }

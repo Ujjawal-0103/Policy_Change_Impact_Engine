@@ -43,8 +43,4 @@ export class CreateActionDto {
   @IsString()
   @IsOptional()
   note?: string;
-
-  @IsString()
-  @IsOptional()
-  userId?: string;
 }

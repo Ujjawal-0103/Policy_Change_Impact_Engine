@@ -5,12 +5,4 @@ export class UploadDocumentDto {
   @IsString()
   @MaxLength(255)
   title?: string;
-
-  @IsOptional()
-  @IsString()
-  uploadedById?: string;
-
-  @IsOptional()
-  @IsString()
-  orgId?: string;
 }

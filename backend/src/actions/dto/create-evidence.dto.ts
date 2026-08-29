@@ -12,8 +12,4 @@ export class CreateEvidenceDto {
   @IsString()
   @IsOptional()
   fileUrl?: string;
-
-  @IsString()
-  @IsOptional()
-  userId?: string;
 }

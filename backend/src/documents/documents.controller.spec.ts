@@ -2,10 +2,18 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DocumentsController } from './documents.controller.js';
 import { DocumentsService } from './documents.service.js';
 import { BadRequestException } from '@nestjs/common';
+import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 
 describe('DocumentsController', () => {
   let controller: DocumentsController;
   let serviceMock: Partial<Record<keyof DocumentsService, any>>;
+
+  const mockUser: AuthenticatedUser = {
+    userId: 'user_1',
+    orgId: 'org_1',
+    email: 'admin@test.com',
+    name: 'Admin',
+  };
 
   beforeEach(() => {
     serviceMock = {
@@ -23,7 +31,7 @@ describe('DocumentsController', () => {
   describe('upload', () => {
     it('throws BadRequestException if no file is provided', async () => {
       await expect(
-        controller.upload(null as any, { title: 'Test' }),
+        controller.upload(null as any, { title: 'Test' }, mockUser),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -51,37 +59,37 @@ describe('DocumentsController', () => {
 
       serviceMock.upload.mockResolvedValue(mockResponse);
 
-      const result = await controller.upload(mockFile, { title: 'My Policy' });
+      const result = await controller.upload(mockFile, { title: 'My Policy' }, mockUser);
 
       expect(serviceMock.upload).toHaveBeenCalledWith(mockFile, {
         title: 'My Policy',
-      });
+      }, mockUser);
       expect(result).toEqual(mockResponse);
     });
   });
 
   describe('findAll', () => {
-    it('delegates to service.findAll', async () => {
+    it('delegates to service.findAll with orgId', async () => {
       serviceMock.findAll.mockResolvedValue([]);
-      const result = await controller.findAll();
-      expect(serviceMock.findAll).toHaveBeenCalled();
+      const result = await controller.findAll(mockUser);
+      expect(serviceMock.findAll).toHaveBeenCalledWith(mockUser.orgId);
       expect(result).toEqual([]);
     });
   });
 
   describe('findOne', () => {
-    it('delegates to service.findOne with id', async () => {
+    it('delegates to service.findOne with id and orgId', async () => {
       const mockDoc = { id: 'doc_123', title: 'Test' };
       serviceMock.findOne.mockResolvedValue(mockDoc);
 
-      const result = await controller.findOne('doc_123');
-      expect(serviceMock.findOne).toHaveBeenCalledWith('doc_123');
+      const result = await controller.findOne('doc_123', mockUser);
+      expect(serviceMock.findOne).toHaveBeenCalledWith('doc_123', mockUser.orgId);
       expect(result).toEqual(mockDoc);
     });
   });
 
   describe('analyze', () => {
-    it('delegates to service.analyze with document id', async () => {
+    it('delegates to service.analyze with document id and orgId', async () => {
       const mockAnalysis = {
         documentId: 'doc_123',
         documentTitle: 'Test Document',
@@ -91,10 +99,9 @@ describe('DocumentsController', () => {
       };
       serviceMock.analyze.mockResolvedValue(mockAnalysis);
 
-      const result = await controller.analyze('doc_123');
-      expect(serviceMock.analyze).toHaveBeenCalledWith('doc_123');
+      const result = await controller.analyze('doc_123', mockUser);
+      expect(serviceMock.analyze).toHaveBeenCalledWith('doc_123', mockUser.orgId);
       expect(result).toEqual(mockAnalysis);
     });
   });
 });
-

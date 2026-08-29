@@ -5,13 +5,19 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class RequirementsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async findAll(filter?: { policyVersionId?: string; policyId?: string }) {
-    const where: any = {};
+  async findAll(filter: { policyVersionId?: string; policyId?: string } | undefined, orgId: string) {
+    const where: any = {
+      policyVersion: { policy: { orgId } },
+    };
+
     if (filter?.policyVersionId) {
       where.policyVersionId = filter.policyVersionId;
     }
     if (filter?.policyId) {
-      where.policyVersion = { policyId: filter.policyId };
+      where.policyVersion = {
+        ...where.policyVersion,
+        policyId: filter.policyId,
+      };
     }
 
     return this.prisma.requirement.findMany({
@@ -23,7 +29,7 @@ export class RequirementsService {
             id: true,
             versionNumber: true,
             status: true,
-            policy: { select: { id: true, name: true } },
+            policy: { select: { id: true, name: true, orgId: true } },
           },
         },
         _count: {
@@ -33,7 +39,7 @@ export class RequirementsService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, orgId: string) {
     const requirement = await this.prisma.requirement.findUnique({
       where: { id },
       include: {
@@ -47,7 +53,7 @@ export class RequirementsService {
       },
     });
 
-    if (!requirement) {
+    if (!requirement || requirement.policyVersion.policy.orgId !== orgId) {
       throw new NotFoundException(`Requirement with ID "${id}" was not found.`);
     }
 

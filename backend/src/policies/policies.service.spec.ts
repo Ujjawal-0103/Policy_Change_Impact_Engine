@@ -3,19 +3,20 @@ import { PoliciesService } from './policies.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AiService } from '../ai/ai.service.js';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { PolicyVersionStatus, ChangeType } from '@prisma/client';
+import { PolicyVersionStatus } from '@prisma/client';
 
 describe('PoliciesService', () => {
   let service: PoliciesService;
   let prismaMock: any;
   let aiServiceMock: any;
+  const mockOrgId = 'org-123';
 
   beforeEach(() => {
     prismaMock = {
       organization: {
-        findUnique: vi.fn().mockResolvedValue({ id: 'org-123', name: 'Default Org' }),
-        findFirst: vi.fn().mockResolvedValue({ id: 'org-123', name: 'Default Org' }),
-        create: vi.fn().mockResolvedValue({ id: 'org-123', name: 'Default Org' }),
+        findUnique: vi.fn().mockResolvedValue({ id: mockOrgId, name: 'Default Org' }),
+        findFirst: vi.fn().mockResolvedValue({ id: mockOrgId, name: 'Default Org' }),
+        create: vi.fn().mockResolvedValue({ id: mockOrgId, name: 'Default Org' }),
       },
       policy: {
         create: vi.fn().mockImplementation(({ data }) =>
@@ -23,6 +24,7 @@ describe('PoliciesService', () => {
         ),
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         update: vi.fn().mockImplementation(({ where, data }) =>
           Promise.resolve({ id: where.id, ...data }),
         ),
@@ -41,6 +43,7 @@ describe('PoliciesService', () => {
       },
       document: {
         findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
       },
       requirement: {
         create: vi.fn().mockImplementation(({ data }) =>
@@ -70,40 +73,49 @@ describe('PoliciesService', () => {
   });
 
   describe('createPolicy', () => {
-    it('creates a basic policy without initial document', async () => {
-      prismaMock.policy.findUnique.mockResolvedValueOnce({
+    it('creates a basic policy scoped to organization', async () => {
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
         id: 'pol-1',
         name: 'Information Security Policy',
         description: 'Sec policy',
-        orgId: 'org-123',
+        orgId: mockOrgId,
         versions: [],
         changes: [],
         _count: { versions: 0, changes: 0 },
       });
 
-      const result = await service.create({
-        name: 'Information Security Policy',
-        description: 'Sec policy',
-      });
+      const result = await service.create(
+        {
+          name: 'Information Security Policy',
+          description: 'Sec policy',
+        },
+        mockOrgId,
+      );
 
       expect(prismaMock.policy.create).toHaveBeenCalledWith({
         data: {
           name: 'Information Security Policy',
           description: 'Sec policy',
-          orgId: 'org-123',
+          orgId: mockOrgId,
         },
       });
       expect(result).toBeDefined();
     });
 
     it('creates policy and attaches document as version 1 with requirement extraction', async () => {
+      prismaMock.document.findFirst.mockResolvedValueOnce({
+        id: 'doc-1',
+        title: 'InfoSec Policy v1.pdf',
+        orgId: mockOrgId,
+      });
+
       prismaMock.document.findUnique.mockResolvedValueOnce({
         id: 'doc-1',
         title: 'InfoSec Policy v1.pdf',
         pages: [{ pageNumber: 1, content: 'Obligation 1 text' }],
       });
 
-      prismaMock.policy.findUnique.mockResolvedValueOnce({
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
         id: 'pol-1',
         name: 'InfoSec Policy',
         versions: [
@@ -130,10 +142,13 @@ describe('PoliciesService', () => {
         },
       ]);
 
-      const result = await service.create({
-        name: 'InfoSec Policy',
-        documentId: 'doc-1',
-      });
+      const result = await service.create(
+        {
+          name: 'InfoSec Policy',
+          documentId: 'doc-1',
+        },
+        mockOrgId,
+      );
 
       expect(prismaMock.policyVersion.create).toHaveBeenCalled();
       expect(result).toBeDefined();
@@ -142,18 +157,19 @@ describe('PoliciesService', () => {
 
   describe('createVersion', () => {
     it('creates a sequential new version (v2) preserving previous versions', async () => {
-      prismaMock.policy.findUnique.mockResolvedValueOnce({
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
         id: 'pol-1',
         name: 'InfoSec Policy',
+        orgId: mockOrgId,
         versions: [
           { id: 'ver-1', versionNumber: 1, status: PolicyVersionStatus.ACTIVE },
         ],
       });
 
-      prismaMock.document.findUnique.mockResolvedValueOnce({
+      prismaMock.document.findFirst.mockResolvedValueOnce({
         id: 'doc-2',
         title: 'InfoSec Policy v2.pdf',
-        pages: [{ pageNumber: 1, content: 'Updated content' }],
+        orgId: mockOrgId,
       });
 
       prismaMock.policyVersion.findUnique.mockResolvedValueOnce({
@@ -166,11 +182,15 @@ describe('PoliciesService', () => {
         _count: { requirements: 0 },
       });
 
-      const newVer = await service.createVersion('pol-1', {
-        documentId: 'doc-2',
-        status: PolicyVersionStatus.ACTIVE,
-        autoExtractRequirements: false,
-      });
+      const newVer = await service.createVersion(
+        'pol-1',
+        {
+          documentId: 'doc-2',
+          status: PolicyVersionStatus.ACTIVE,
+          autoExtractRequirements: false,
+        },
+        mockOrgId,
+      );
 
       expect(prismaMock.policyVersion.create).toHaveBeenCalledWith({
         data: {
@@ -184,20 +204,21 @@ describe('PoliciesService', () => {
       expect(newVer?.versionNumber).toBe(2);
     });
 
-    it('throws NotFoundException if policy does not exist', async () => {
-      prismaMock.policy.findUnique.mockResolvedValueOnce(null);
+    it('throws NotFoundException if policy does not exist in organization', async () => {
+      prismaMock.policy.findFirst.mockResolvedValueOnce(null);
 
       await expect(
-        service.createVersion('non-existent', { documentId: 'doc-1' }),
+        service.createVersion('non-existent', { documentId: 'doc-1' }, mockOrgId),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('updateVersionStatus', () => {
     it('promotes DRAFT version to ACTIVE and archives previous ACTIVE versions', async () => {
-      prismaMock.policy.findUnique.mockResolvedValueOnce({
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
         id: 'pol-1',
         name: 'InfoSec Policy',
+        orgId: mockOrgId,
       });
 
       prismaMock.policyVersion.findFirst.mockResolvedValueOnce({
@@ -221,6 +242,7 @@ describe('PoliciesService', () => {
         'pol-1',
         'ver-2',
         PolicyVersionStatus.ACTIVE,
+        mockOrgId,
       );
 
       expect(prismaMock.policyVersion.updateMany).toHaveBeenCalledWith({
@@ -237,27 +259,28 @@ describe('PoliciesService', () => {
     });
 
     it('throws NotFoundException if version not found for policy', async () => {
-      prismaMock.policy.findUnique.mockResolvedValueOnce({
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
         id: 'pol-1',
         name: 'InfoSec Policy',
+        orgId: mockOrgId,
       });
       prismaMock.policyVersion.findFirst.mockResolvedValueOnce(null);
 
       await expect(
-        service.updateVersionStatus('pol-1', 'ver-999', PolicyVersionStatus.ACTIVE),
+        service.updateVersionStatus('pol-1', 'ver-999', PolicyVersionStatus.ACTIVE, mockOrgId),
       ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('compareVersions', () => {
     it('compares two distinct versions, saves detected changes, and returns summary stats', async () => {
-      prismaMock.policyVersion.findUnique
+      prismaMock.policyVersion.findFirst
         .mockResolvedValueOnce({
           id: 'ver-1',
           versionNumber: 1,
           policyId: 'pol-1',
           status: PolicyVersionStatus.ACTIVE,
-          policy: { name: 'InfoSec Policy' },
+          policy: { name: 'InfoSec Policy', orgId: mockOrgId },
           document: { id: 'doc-1', title: 'v1.pdf', pages: [] },
           requirements: [
             {
@@ -274,7 +297,7 @@ describe('PoliciesService', () => {
           versionNumber: 2,
           policyId: 'pol-1',
           status: PolicyVersionStatus.ACTIVE,
-          policy: { name: 'InfoSec Policy' },
+          policy: { name: 'InfoSec Policy', orgId: mockOrgId },
           document: { id: 'doc-2', title: 'v2.pdf', pages: [] },
           requirements: [
             {
@@ -312,10 +335,13 @@ describe('PoliciesService', () => {
         },
       ]);
 
-      const result = await service.compareVersions({
-        fromVersionId: 'ver-1',
-        toVersionId: 'ver-2',
-      });
+      const result = await service.compareVersions(
+        {
+          fromVersionId: 'ver-1',
+          toVersionId: 'ver-2',
+        },
+        mockOrgId,
+      );
 
       expect(result.summary.totalChanges).toBe(2);
       expect(result.summary.modifiedCount).toBe(2);
@@ -324,15 +350,18 @@ describe('PoliciesService', () => {
     });
 
     it('throws BadRequestException if comparing a version to itself', async () => {
-      prismaMock.policyVersion.findUnique
-        .mockResolvedValueOnce({ id: 'ver-1', policyId: 'pol-1' })
-        .mockResolvedValueOnce({ id: 'ver-1', policyId: 'pol-1' });
+      prismaMock.policyVersion.findFirst
+        .mockResolvedValueOnce({ id: 'ver-1', policyId: 'pol-1', policy: { orgId: mockOrgId } })
+        .mockResolvedValueOnce({ id: 'ver-1', policyId: 'pol-1', policy: { orgId: mockOrgId } });
 
       await expect(
-        service.compareVersions({
-          fromVersionId: 'ver-1',
-          toVersionId: 'ver-1',
-        }),
+        service.compareVersions(
+          {
+            fromVersionId: 'ver-1',
+            toVersionId: 'ver-1',
+          },
+          mockOrgId,
+        ),
       ).rejects.toThrow(BadRequestException);
     });
   });

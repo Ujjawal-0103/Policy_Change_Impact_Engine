@@ -1,92 +1,111 @@
 import {
   Controller,
-  Get,
   Post,
+  Get,
   Param,
-  Body,
   UseInterceptors,
   UploadedFile,
+  Body,
   BadRequestException,
-  ParseFilePipe,
-  MaxFileSizeValidator,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentsService } from './documents.service.js';
 import { UploadDocumentDto } from './dto/upload-document.dto.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 import 'multer';
 
 @Controller('documents')
+@UseGuards(JwtAuthGuard)
 export class DocumentsController {
   constructor(private readonly documentsService: DocumentsService) {}
 
   /**
-   * Upload a policy PDF document, extract page-aware text, and store in Cloudinary & DB.
-   * Max file size: 25MB.
+   * Upload and process a PDF document.
+   * POST /documents/upload
+   * Accepts multipart/form-data with `file` and optional `title`.
+   * Automatically extracts text per page and saves pages to DB.
+   * Scoped strictly to authenticated user and organization.
    */
   @Post('upload')
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
-        fileSize: 25 * 1024 * 1024, // 25 MB
+        fileSize: 50 * 1024 * 1024, // 50MB max file size
+      },
+      fileFilter: (_req, file, cb) => {
+        if (
+          file.mimetype !== 'application/pdf' &&
+          !file.originalname.toLowerCase().endsWith('.pdf')
+        ) {
+          return cb(
+            new BadRequestException(
+              'Invalid file type. Only PDF documents (.pdf) are accepted.',
+            ),
+            false,
+          );
+        }
+        cb(null, true);
       },
     }),
   )
   async upload(
-    @UploadedFile(
-      new ParseFilePipe({
-        validators: [
-          new MaxFileSizeValidator({
-            maxSize: 25 * 1024 * 1024,
-            message: 'File size exceeds the 25MB limit.',
-          }),
-        ],
-        fileIsRequired: true,
-      }),
-    )
-    file: Express.Multer.File,
+    @UploadedFile() file: Express.Multer.File,
     @Body() dto: UploadDocumentDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
     if (!file) {
-      throw new BadRequestException('No PDF file uploaded.');
+      throw new BadRequestException('File is required. Please attach a PDF document.');
     }
-    return this.documentsService.upload(file, dto);
+
+    return this.documentsService.upload(file, dto, user);
   }
 
   /**
-   * Retrieve all uploaded policy documents with metadata and page counts.
+   * List all documents scoped to authenticated organization.
+   * GET /documents
    */
   @Get()
-  async findAll() {
-    return this.documentsService.findAll();
+  async findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.documentsService.findAll(user.orgId);
   }
 
   /**
-   * Development preview fallback for documents uploaded without Cloudinary credentials.
+   * Development preview endpoint for local files.
+   * GET /documents/preview/:filename
    */
-  @Get('dev-preview/:filename')
-  devPreview(@Param('filename') filename: string) {
+  @Get('preview/:filename')
+  previewFile(@Param('filename') filename: string) {
     return {
-      message: 'This document was processed in local development mode before Cloudinary credentials were active.',
+      message: 'PDF preview endpoint is active in local development mode.',
       filename,
-      status: 'Extracted text is fully stored in the database. Configure CLOUDINARY_API_SECRET in backend/.env for live cloud hosting.',
+      note: 'In production with Cloudinary configured, full secure storage URLs will be served.',
     };
   }
 
   /**
-   * Retrieve a single document with its metadata and extracted page-aware text.
+   * Get document metadata and extracted text per page.
+   * GET /documents/:id
    */
   @Get(':id')
-  async findOne(@Param('id') id: string) {
-    return this.documentsService.findOne(id);
+  async findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.documentsService.findOne(id, user.orgId);
   }
 
   /**
-   * Analyze a document's extracted pages using Gemini AI to extract
-   * structured requirements, suggested actions, deadlines, and responsibilities.
+   * Run AI analysis on an uploaded document to extract compliance requirements.
+   * POST /documents/:id/analyze
    */
   @Post(':id/analyze')
-  async analyze(@Param('id') id: string) {
-    return this.documentsService.analyze(id);
+  async analyze(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.documentsService.analyze(id, user.orgId);
   }
 }
-

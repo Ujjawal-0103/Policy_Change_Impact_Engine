@@ -4,13 +4,15 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
-import { ActionStatus, Priority } from '@prisma/client';
+import { Priority } from '@prisma/client';
 
 describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   let app: INestApplication;
   let prisma: PrismaService;
   let testRequirementId: string;
   let testActionId: string;
+  let authToken: string;
+  let testOrgId: string;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -29,23 +31,19 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     prisma = app.get(PrismaService);
 
-    // Setup prerequisites: Org, User, Doc, Policy, PolicyVersion, Requirement
-    const org = await prisma.organization.upsert({
-      where: { slug: 'test-actions-org' },
-      update: {},
-      create: { name: 'Actions Test Org', slug: 'test-actions-org' },
-    });
-
-    const user = await prisma.user.upsert({
-      where: { email: 'actions-test@policyengine.local' },
-      update: {},
-      create: {
+    // Register test user & organization
+    const regRes = await request(app.getHttpServer())
+      .post('/auth/register')
+      .send({
         name: 'Actions Tester',
-        email: 'actions-test@policyengine.local',
-        password: 'hashed_password',
-        orgId: org.id,
-      },
-    });
+        email: `actions-e2e-${Date.now()}@policyengine.local`,
+        password: 'Password123!',
+        organizationName: 'Actions Test Org',
+      });
+
+    authToken = regRes.body.accessToken;
+    testOrgId = regRes.body.user.orgId;
+    const testUserId = regRes.body.user.id;
 
     const doc = await prisma.document.create({
       data: {
@@ -53,15 +51,15 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
         originalName: 'test-doc.pdf',
         mimeType: 'application/pdf',
         storageUrl: 'http://localhost:3001/test.pdf',
-        uploadedById: user.id,
-        orgId: org.id,
+        uploadedById: testUserId,
+        orgId: testOrgId,
       },
     });
 
     const policy = await prisma.policy.create({
       data: {
         name: 'Actions E2E Security Policy',
-        orgId: org.id,
+        orgId: testOrgId,
       },
     });
 
@@ -87,9 +85,33 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   });
 
   afterEach(async () => {
-    if (prisma) {
+    if (prisma && testOrgId) {
+      await prisma.evidence.deleteMany({
+        where: { action: { requirement: { policyVersion: { policy: { orgId: testOrgId } } } } },
+      }).catch(() => {});
+      await prisma.actionHistory.deleteMany({
+        where: { action: { requirement: { policyVersion: { policy: { orgId: testOrgId } } } } },
+      }).catch(() => {});
+      await prisma.action.deleteMany({
+        where: { requirement: { policyVersion: { policy: { orgId: testOrgId } } } },
+      }).catch(() => {});
+      await prisma.requirement.deleteMany({
+        where: { policyVersion: { policy: { orgId: testOrgId } } },
+      }).catch(() => {});
+      await prisma.policyVersion.deleteMany({
+        where: { policy: { orgId: testOrgId } },
+      }).catch(() => {});
+      await prisma.policy.deleteMany({
+        where: { orgId: testOrgId },
+      }).catch(() => {});
+      await prisma.document.deleteMany({
+        where: { orgId: testOrgId },
+      }).catch(() => {});
+      await prisma.user.deleteMany({
+        where: { orgId: testOrgId },
+      }).catch(() => {});
       await prisma.organization.deleteMany({
-        where: { slug: 'test-actions-org' },
+        where: { id: testOrgId },
       }).catch(() => {});
     }
     if (app) {
@@ -100,6 +122,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('A. POST /actions — successfully creates an Action from a Requirement', async () => {
     const res = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Deploy Duo MFA for Engineering Team',
@@ -124,6 +147,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('B. POST /actions — rejects action creation if requirement does not exist', async () => {
     const res = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: 'non_existent_req_id_99999',
         title: 'Ghost Action',
@@ -137,6 +161,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Create an action first
     const createRes = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Test List Action',
@@ -147,6 +172,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     const res = await request(app.getHttpServer())
       .get('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(Array.isArray(res.body)).toBe(true);
@@ -159,6 +185,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('D. GET /actions/:id — retrieves full action with requirement, evidence, and audit history', async () => {
     const createRes = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Detailed Action Inspection',
@@ -168,6 +195,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     const res = await request(app.getHttpServer())
       .get(`/actions/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(res.body.id).toBe(createRes.body.id);
@@ -181,6 +209,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('E. PATCH /actions/:id/status — changes status and records ActionHistory', async () => {
     const createRes = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Status Transition Test Action',
@@ -190,6 +219,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Transition to IN_PROGRESS
     const updateRes = await request(app.getHttpServer())
       .patch(`/actions/${createRes.body.id}/status`)
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         status: 'IN_PROGRESS',
         note: 'Engineering started rollout',
@@ -201,6 +231,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Verify ActionHistory entry
     const detailsRes = await request(app.getHttpServer())
       .get(`/actions/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     const history = detailsRes.body.history;
@@ -215,6 +246,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('F. PATCH /actions/:id/assign — assigns department and owner', async () => {
     const createRes = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Assignment Test Action',
@@ -224,6 +256,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     const assignRes = await request(app.getHttpServer())
       .patch(`/actions/${createRes.body.id}/assign`)
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         department: 'IT Infrastructure',
         note: 'Transferred ownership to IT Infrastructure',
@@ -235,6 +268,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Verify history recorded
     const detailsRes = await request(app.getHttpServer())
       .get(`/actions/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     const deptHistory = detailsRes.body.history.find(
@@ -246,6 +280,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   it('G. POST /actions/:id/evidence — attaches compliance evidence to action', async () => {
     const createRes = await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Evidence Test Action',
@@ -254,6 +289,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     const evidenceRes = await request(app.getHttpServer())
       .post(`/actions/${createRes.body.id}/evidence`)
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         title: 'Duo MFA Enrollment Screenshot Report',
         description: 'Verified 100% enrollment of 50 active engineers.',
@@ -268,6 +304,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Verify action details include evidence
     const detailsRes = await request(app.getHttpServer())
       .get(`/actions/${createRes.body.id}`)
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(detailsRes.body.evidence.length).toBe(1);
@@ -280,6 +317,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
     // Create an overdue action (past deadline, not completed)
     await request(app.getHttpServer())
       .post('/actions')
+      .set('Authorization', `Bearer ${authToken}`)
       .send({
         requirementId: testRequirementId,
         title: 'Overdue Mandate Action',
@@ -290,6 +328,7 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
 
     const statsRes = await request(app.getHttpServer())
       .get('/actions/stats')
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(statsRes.body).toHaveProperty('totalActions');

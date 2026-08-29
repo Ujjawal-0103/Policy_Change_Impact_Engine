@@ -7,14 +7,13 @@ export class ImpactService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Retrieves impacts for a specific policy change ID.
-   * Throws 404 NotFoundException if the change does not exist.
-   * Deterministically creates a default impact if change exists without one.
+   * Retrieves impacts for a specific policy change ID, scoped strictly to organization.
    */
-  async getImpacts(changeId: string) {
-    const change = await this.prisma.policyChange.findUnique({
-      where: { id: changeId },
+  async getImpacts(changeId: string, orgId: string) {
+    const change = await this.prisma.policyChange.findFirst({
+      where: { id: changeId, policy: { orgId } },
       include: {
+        policy: true,
         impacts: true,
       },
     });
@@ -40,12 +39,23 @@ export class ImpactService {
   }
 
   /**
-   * Lists all impacts across policies, optionally filtered by policy, severity, or status.
+   * Lists all impacts strictly for the authenticated organization.
    */
-  async findAll(filter?: { policyId?: string; severity?: ImpactSeverity; status?: ImpactStatus }) {
-    const where: any = {};
+  async findAll(
+    filter: { policyId?: string; severity?: ImpactSeverity; status?: ImpactStatus } | undefined,
+    orgId: string,
+  ) {
+    const where: any = {
+      policyChange: {
+        policy: { orgId },
+      },
+    };
+
     if (filter?.policyId) {
-      where.policyChange = { policyId: filter.policyId };
+      where.policyChange = {
+        ...where.policyChange,
+        policyId: filter.policyId,
+      };
     }
     if (filter?.severity) {
       where.severity = filter.severity;
@@ -60,7 +70,7 @@ export class ImpactService {
       include: {
         policyChange: {
           include: {
-            policy: { select: { id: true, name: true } },
+            policy: { select: { id: true, name: true, orgId: true } },
             fromVersion: { select: { id: true, versionNumber: true } },
             toVersion: { select: { id: true, versionNumber: true } },
           },
@@ -70,11 +80,14 @@ export class ImpactService {
   }
 
   /**
-   * Retrieves a single impact record by ID with full policyChange relation.
+   * Retrieves a single impact record by ID scoped strictly to organization.
    */
-  async getImpactById(id: string) {
-    const impact = await this.prisma.impact.findUnique({
-      where: { id },
+  async getImpactById(id: string, orgId: string) {
+    const impact = await this.prisma.impact.findFirst({
+      where: {
+        id,
+        policyChange: { policy: { orgId } },
+      },
       include: {
         policyChange: {
           include: {
@@ -94,18 +107,33 @@ export class ImpactService {
   }
 
   /**
-   * Updates status of an existing impact.
+   * Updates status of an existing impact scoped strictly to organization.
    */
-  async updateImpactStatus(id: string, status: ImpactStatus) {
-    const existing = await this.prisma.impact.findUnique({ where: { id } });
+  async updateImpactStatus(id: string, status: ImpactStatus, orgId: string) {
+    const existing = await this.prisma.impact.findFirst({
+      where: {
+        id,
+        policyChange: { policy: { orgId } },
+      },
+      include: { policyChange: { include: { policy: true } } },
+    });
+
     if (!existing) {
       throw new NotFoundException(`Impact record with ID "${id}" was not found.`);
     }
 
     return this.prisma.impact.update({
       where: { id },
-      data: { status, updatedAt: new Date() },
+      data: { status },
+      include: {
+        policyChange: {
+          include: {
+            policy: true,
+            fromVersion: true,
+            toVersion: true,
+          },
+        },
+      },
     });
   }
 }
-

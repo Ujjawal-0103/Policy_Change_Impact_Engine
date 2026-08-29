@@ -10,6 +10,7 @@ import { PdfExtractorService } from './pdf-extractor.service.js';
 import { AiService } from '../ai/ai.service.js';
 import { DocumentAnalysisResponseDto } from '../ai/dto/analysis-result.dto.js';
 import { UploadDocumentDto } from './dto/upload-document.dto.js';
+import { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 import 'multer';
 
 @Injectable()
@@ -24,63 +25,14 @@ export class DocumentsService {
   ) {}
 
   /**
-   * Validates and resolves an active User and Organization for foreign key relations.
-   * If not found or provided, finds or seeds a default organization and system user.
-   */
-  private async resolveUserAndOrg(
-    dto: UploadDocumentDto,
-  ): Promise<{ userId: string; orgId: string }> {
-    if (dto.uploadedById && dto.orgId) {
-      const user = await this.prisma.user.findUnique({
-        where: { id: dto.uploadedById },
-      });
-      const org = await this.prisma.organization.findUnique({
-        where: { id: dto.orgId },
-      });
-      if (user && org) {
-        return { userId: user.id, orgId: org.id };
-      }
-    }
-
-    // Find or create default organization
-    let defaultOrg = await this.prisma.organization.findFirst({
-      where: { slug: 'default-org' },
-    });
-    if (!defaultOrg) {
-      defaultOrg = await this.prisma.organization.create({
-        data: {
-          name: 'Default Organization',
-          slug: 'default-org',
-        },
-      });
-    }
-
-    // Find or create default system user
-    let defaultUser = await this.prisma.user.findFirst({
-      where: { email: 'admin@policyengine.local' },
-    });
-    if (!defaultUser) {
-      defaultUser = await this.prisma.user.create({
-        data: {
-          name: 'System Admin',
-          email: 'admin@policyengine.local',
-          password: 'system_default_password_hash',
-          orgId: defaultOrg.id,
-        },
-      });
-    }
-
-    return {
-      userId: dto.uploadedById || defaultUser.id,
-      orgId: dto.orgId || defaultOrg.id,
-    };
-  }
-
-  /**
    * Handles PDF upload, validation, Cloudinary storage, page-aware text extraction,
-   * and database persistence.
+   * and database persistence scoped strictly to the authenticated user and organization.
    */
-  async upload(file: Express.Multer.File, dto: UploadDocumentDto) {
+  async upload(
+    file: Express.Multer.File,
+    dto: UploadDocumentDto,
+    user: AuthenticatedUser,
+  ) {
     if (!file || !file.buffer) {
       throw new BadRequestException('No PDF file uploaded.');
     }
@@ -105,7 +57,7 @@ export class DocumentsService {
     }
 
     this.logger.log(
-      `Processing PDF upload: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB)`,
+      `Processing PDF upload for Org ${user.orgId} by User ${user.userId}: ${file.originalname} (${(file.size / 1024).toFixed(1)} KB)`,
     );
 
     // 1. Upload to Cloudinary
@@ -115,24 +67,21 @@ export class DocumentsService {
     const extractionResult =
       await this.pdfExtractorService.extractPageAwareText(file.buffer);
 
-    // 3. Resolve user and org
-    const { userId, orgId } = await this.resolveUserAndOrg(dto);
-
-    // 4. Derive document title
+    // 3. Derive document title
     const computedTitle =
       dto.title?.trim() ||
       file.originalname.replace(/\.[^/.]+$/, '').trim() ||
       'Untitled Policy Document';
 
-    // 5. Transactionally save Document and DocumentPages
+    // 4. Transactionally save Document and DocumentPages with STRICT ownership
     const document = await this.prisma.document.create({
       data: {
         title: computedTitle,
         originalName: file.originalname,
         mimeType: file.mimetype || 'application/pdf',
         storageUrl: uploadResult.url,
-        uploadedById: userId,
-        orgId: orgId,
+        uploadedById: user.userId,
+        orgId: user.orgId,
         pages: {
           create: extractionResult.pages.map((p) => ({
             pageNumber: p.pageNumber,
@@ -154,7 +103,7 @@ export class DocumentsService {
     });
 
     this.logger.log(
-      `Document "${document.title}" saved successfully with ID ${document.id} and ${document.pages.length} pages.`,
+      `Document "${document.title}" saved successfully with ID ${document.id} for Org ${user.orgId}.`,
     );
 
     return {
@@ -175,10 +124,11 @@ export class DocumentsService {
   }
 
   /**
-   * Retrieves all documents with page counts and relations.
+   * Retrieves all documents for the specified organization.
    */
-  async findAll() {
+  async findAll(orgId: string) {
     const documents = await this.prisma.document.findMany({
+      where: { orgId },
       orderBy: { createdAt: 'desc' },
       include: {
         _count: {
@@ -210,11 +160,11 @@ export class DocumentsService {
   }
 
   /**
-   * Retrieves a single document by ID including its page-aware extracted text.
+   * Retrieves a single document by ID belonging strictly to the organization.
    */
-  async findOne(id: string) {
-    const document = await this.prisma.document.findUnique({
-      where: { id },
+  async findOne(id: string, orgId: string) {
+    const document = await this.prisma.document.findFirst({
+      where: { id, orgId },
       include: {
         pages: {
           orderBy: { pageNumber: 'asc' },
@@ -254,13 +204,11 @@ export class DocumentsService {
   }
 
   /**
-   * Analyzes the extracted text of a document with Gemini AI to extract
-   * requirements, suggested actions, responsibilities, and deadlines.
-   * Does not persist analysis to the database in Sprint 3.
+   * Analyzes the extracted text of an organization's document with Gemini AI.
    */
-  async analyze(id: string): Promise<DocumentAnalysisResponseDto> {
-    const document = await this.prisma.document.findUnique({
-      where: { id },
+  async analyze(id: string, orgId: string): Promise<DocumentAnalysisResponseDto> {
+    const document = await this.prisma.document.findFirst({
+      where: { id, orgId },
       include: {
         pages: {
           orderBy: { pageNumber: 'asc' },
@@ -298,4 +246,3 @@ export class DocumentsService {
     };
   }
 }
-

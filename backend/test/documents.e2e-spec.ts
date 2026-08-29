@@ -4,6 +4,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/prisma/prisma.service.js';
+import { JwtService } from '@nestjs/jwt';
 
 const SAMPLE_2PAGE_PDF = Buffer.from(
   `%PDF-1.4
@@ -63,6 +64,7 @@ describe('Documents End-to-End API Flow', () => {
   let app: INestApplication;
   let inMemoryDocs: any[] = [];
   let inMemoryPages: any[] = [];
+  let authToken: string;
 
   beforeEach(async () => {
     inMemoryDocs = [];
@@ -113,6 +115,14 @@ describe('Documents End-to-End API Flow', () => {
         findMany: vi.fn().mockImplementation(async () => {
           return inMemoryDocs;
         }),
+        findFirst: vi.fn().mockImplementation(async ({ where }) => {
+          const doc = inMemoryDocs.find((d) => d.id === where.id);
+          if (!doc) return null;
+          return {
+            ...doc,
+            policyVersions: [],
+          };
+        }),
         findUnique: vi.fn().mockImplementation(async ({ where }) => {
           const doc = inMemoryDocs.find((d) => d.id === where.id);
           if (!doc) return null;
@@ -140,6 +150,14 @@ describe('Documents End-to-End API Flow', () => {
       }),
     );
     await app.init();
+
+    const jwtService = app.get(JwtService);
+    authToken = jwtService.sign({
+      sub: 'user-test-1',
+      orgId: 'org-test-1',
+      email: 'admin@policyengine.local',
+      name: 'Test User',
+    });
   });
 
   afterEach(async () => {
@@ -149,6 +167,7 @@ describe('Documents End-to-End API Flow', () => {
   it('1. POST /documents/upload - uploads valid 2-page PDF and extracts text per page', async () => {
     const res = await request(app.getHttpServer())
       .post('/documents/upload')
+      .set('Authorization', `Bearer ${authToken}`)
       .field('title', 'Annual IT Security Policy 2026')
       .attach('file', SAMPLE_2PAGE_PDF, 'annual-security-policy.pdf')
       .expect(201);
@@ -174,12 +193,14 @@ describe('Documents End-to-End API Flow', () => {
     // First upload a document
     await request(app.getHttpServer())
       .post('/documents/upload')
+      .set('Authorization', `Bearer ${authToken}`)
       .field('title', 'Doc 1')
       .attach('file', SAMPLE_2PAGE_PDF, 'policy.pdf')
       .expect(201);
 
     const listRes = await request(app.getHttpServer())
       .get('/documents')
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(Array.isArray(listRes.body)).toBe(true);
@@ -193,6 +214,7 @@ describe('Documents End-to-End API Flow', () => {
   it('3. GET /documents/:id - returns document details and page-aware extracted text', async () => {
     const uploadRes = await request(app.getHttpServer())
       .post('/documents/upload')
+      .set('Authorization', `Bearer ${authToken}`)
       .field('title', 'GDPR Compliance Guide')
       .attach('file', SAMPLE_2PAGE_PDF, 'gdpr.pdf')
       .expect(201);
@@ -201,6 +223,7 @@ describe('Documents End-to-End API Flow', () => {
 
     const detailRes = await request(app.getHttpServer())
       .get(`/documents/${docId}`)
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(200);
 
     expect(detailRes.body.id).toBe(docId);
@@ -213,6 +236,7 @@ describe('Documents End-to-End API Flow', () => {
   it('4. GET /documents/:id - returns 404 for non-existent document', async () => {
     const res = await request(app.getHttpServer())
       .get('/documents/non-existent-doc-999')
+      .set('Authorization', `Bearer ${authToken}`)
       .expect(404);
 
     expect(res.body.message).toContain('was not found');
@@ -223,6 +247,7 @@ describe('Documents End-to-End API Flow', () => {
 
     const res = await request(app.getHttpServer())
       .post('/documents/upload')
+      .set('Authorization', `Bearer ${authToken}`)
       .attach('file', invalidTextFile, 'notes.txt')
       .expect(400);
 
@@ -232,6 +257,7 @@ describe('Documents End-to-End API Flow', () => {
   it('6. POST /documents/upload - rejects request when no file is attached', async () => {
     const res = await request(app.getHttpServer())
       .post('/documents/upload')
+      .set('Authorization', `Bearer ${authToken}`)
       .field('title', 'No file')
       .expect(400);
 

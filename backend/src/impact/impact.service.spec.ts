@@ -7,13 +7,16 @@ import { ImpactSeverity, ImpactStatus, ChangeType } from '@prisma/client';
 describe('ImpactService', () => {
   let service: ImpactService;
   let prisma: PrismaService;
+  const mockOrgId = 'org_1';
 
   const mockPrisma = {
     policyChange: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
     impact: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       findMany: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -27,12 +30,13 @@ describe('ImpactService', () => {
   });
 
   describe('getImpacts', () => {
-    it('should return existing impacts for a valid policyChangeId', async () => {
+    it('should return existing impacts for a valid policyChangeId in org', async () => {
       const mockChange = {
         id: 'change_1',
         changeType: ChangeType.MODIFIED,
         fieldChanged: 'REQUIREMENT',
         description: 'Updated requirement description',
+        policy: { orgId: mockOrgId },
         impacts: [
           {
             id: 'imp_1',
@@ -44,22 +48,22 @@ describe('ImpactService', () => {
         ],
       };
 
-      mockPrisma.policyChange.findUnique.mockResolvedValue(mockChange);
+      mockPrisma.policyChange.findFirst.mockResolvedValue(mockChange);
 
-      const result = await service.getImpacts('change_1');
+      const result = await service.getImpacts('change_1', mockOrgId);
 
-      expect(mockPrisma.policyChange.findUnique).toHaveBeenCalledWith({
-        where: { id: 'change_1' },
-        include: { impacts: true },
+      expect(mockPrisma.policyChange.findFirst).toHaveBeenCalledWith({
+        where: { id: 'change_1', policy: { orgId: mockOrgId } },
+        include: { policy: true, impacts: true },
       });
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe('imp_1');
     });
 
     it('should throw NotFoundException if policyChange is not found', async () => {
-      mockPrisma.policyChange.findUnique.mockResolvedValue(null);
+      mockPrisma.policyChange.findFirst.mockResolvedValue(null);
 
-      await expect(service.getImpacts('invalid_change')).rejects.toThrow(
+      await expect(service.getImpacts('invalid_change', mockOrgId)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -70,6 +74,7 @@ describe('ImpactService', () => {
         changeType: ChangeType.ADDED,
         fieldChanged: 'REQUIREMENT',
         description: 'New requirement added',
+        policy: { orgId: mockOrgId },
         impacts: [],
       };
 
@@ -81,10 +86,10 @@ describe('ImpactService', () => {
         status: ImpactStatus.IDENTIFIED,
       };
 
-      mockPrisma.policyChange.findUnique.mockResolvedValue(mockChange);
+      mockPrisma.policyChange.findFirst.mockResolvedValue(mockChange);
       mockPrisma.impact.create.mockResolvedValue(mockCreatedImpact);
 
-      const result = await service.getImpacts('change_2');
+      const result = await service.getImpacts('change_2', mockOrgId);
 
       expect(mockPrisma.impact.create).toHaveBeenCalled();
       expect(result).toHaveLength(1);
@@ -93,7 +98,7 @@ describe('ImpactService', () => {
   });
 
   describe('findAll', () => {
-    it('should list all impacts with relations', async () => {
+    it('should list all impacts scoped to organization', async () => {
       const mockImpacts = [
         {
           id: 'imp_1',
@@ -101,7 +106,7 @@ describe('ImpactService', () => {
           severity: ImpactSeverity.HIGH,
           status: ImpactStatus.IDENTIFIED,
           policyChange: {
-            policy: { id: 'p1', name: 'Policy 1' },
+            policy: { id: 'p1', name: 'Policy 1', orgId: mockOrgId },
             fromVersion: { id: 'v1', versionNumber: 1 },
             toVersion: { id: 'v2', versionNumber: 2 },
           },
@@ -110,17 +115,18 @@ describe('ImpactService', () => {
 
       mockPrisma.impact.findMany.mockResolvedValue(mockImpacts);
 
-      const result = await service.findAll();
+      const result = await service.findAll(undefined, mockOrgId);
       expect(result).toHaveLength(1);
       expect(result[0].severity).toBe(ImpactSeverity.HIGH);
     });
   });
 
   describe('updateImpactStatus', () => {
-    it('should update impact status', async () => {
+    it('should update impact status for org', async () => {
       const existing = {
         id: 'imp_1',
         status: ImpactStatus.IDENTIFIED,
+        policyChange: { policy: { orgId: mockOrgId } },
       };
       const updated = {
         id: 'imp_1',
@@ -128,18 +134,18 @@ describe('ImpactService', () => {
         updatedAt: new Date(),
       };
 
-      mockPrisma.impact.findUnique.mockResolvedValue(existing);
+      mockPrisma.impact.findFirst.mockResolvedValue(existing);
       mockPrisma.impact.update.mockResolvedValue(updated);
 
-      const result = await service.updateImpactStatus('imp_1', ImpactStatus.MITIGATED);
+      const result = await service.updateImpactStatus('imp_1', ImpactStatus.MITIGATED, mockOrgId);
       expect(result.status).toBe(ImpactStatus.MITIGATED);
     });
 
     it('should throw NotFoundException when updating nonexistent impact', async () => {
-      mockPrisma.impact.findUnique.mockResolvedValue(null);
+      mockPrisma.impact.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.updateImpactStatus('invalid_id', ImpactStatus.ACCEPTED),
+        service.updateImpactStatus('invalid_id', ImpactStatus.ACCEPTED, mockOrgId),
       ).rejects.toThrow(NotFoundException);
     });
   });

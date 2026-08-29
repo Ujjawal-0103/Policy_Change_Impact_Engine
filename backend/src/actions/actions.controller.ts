@@ -8,6 +8,7 @@ import {
   Query,
   UseInterceptors,
   UploadedFile,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ActionsService } from './actions.service.js';
@@ -16,28 +17,35 @@ import { UpdateActionStatusDto } from './dto/update-action-status.dto.js';
 import { AssignActionDto } from './dto/assign-action.dto.js';
 import { CreateEvidenceDto } from './dto/create-evidence.dto.js';
 import { FilterActionDto } from './dto/filter-action.dto.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { CurrentUser } from '../auth/decorators/current-user.decorator.js';
+import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface.js';
 import 'multer';
 
 @Controller('actions')
+@UseGuards(JwtAuthGuard)
 export class ActionsController {
   constructor(private readonly actionsService: ActionsService) {}
 
   /**
-   * List actions with optional filtering by status, priority, department, requirement, or search query.
+   * List actions with optional filtering scoped strictly to authenticated organization.
    * GET /actions
    */
   @Get()
-  findAll(@Query() filter: FilterActionDto) {
-    return this.actionsService.findAll(filter);
+  findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() filter: FilterActionDto,
+  ) {
+    return this.actionsService.findAll(filter, user.orgId);
   }
 
   /**
-   * Retrieve aggregate action statistics and KPIs for the Dashboard and Actions overview.
+   * Retrieve aggregate action statistics and KPIs for the authenticated organization.
    * GET /actions/stats
    */
   @Get('stats')
-  getStats() {
-    return this.actionsService.getStats();
+  getStats(@CurrentUser() user: AuthenticatedUser) {
+    return this.actionsService.getStats(user.orgId);
   }
 
   /**
@@ -54,21 +62,27 @@ export class ActionsController {
   }
 
   /**
-   * Retrieve a single action by ID with requirement, assignment, evidence, and audit history.
+   * Retrieve a single action by ID scoped to organization.
    * GET /actions/:id
    */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.actionsService.findOne(id);
+  findOne(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.actionsService.findOne(id, user.orgId);
   }
 
   /**
-   * Create an organizational Action linked to an existing Requirement.
+   * Create an organizational Action linked to an existing Requirement in caller's organization.
    * POST /actions
    */
   @Post()
-  create(@Body() dto: CreateActionDto) {
-    return this.actionsService.create(dto);
+  create(
+    @Body() dto: CreateActionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.actionsService.create(dto, user);
   }
 
   /**
@@ -79,20 +93,22 @@ export class ActionsController {
   updateStatus(
     @Param('id') id: string,
     @Body() dto: UpdateActionStatusDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.actionsService.updateStatus(id, dto);
+    return this.actionsService.updateStatus(id, dto, user);
   }
 
   /**
-   * Assign an action to an owner user or department.
+   * Assign an action to an owner user or department within organization.
    * PATCH /actions/:id/assign
    */
   @Patch(':id/assign')
   assign(
     @Param('id') id: string,
     @Body() dto: AssignActionDto,
+    @CurrentUser() user: AuthenticatedUser,
   ) {
-    return this.actionsService.assign(id, dto);
+    return this.actionsService.assign(id, dto, user);
   }
 
   /**
@@ -110,8 +126,9 @@ export class ActionsController {
   addEvidence(
     @Param('id') id: string,
     @Body() dto: CreateEvidenceDto,
+    @CurrentUser() user: AuthenticatedUser,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.actionsService.addEvidence(id, dto, file);
+    return this.actionsService.addEvidence(id, dto, user, file);
   }
 }
