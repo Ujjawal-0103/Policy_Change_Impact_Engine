@@ -117,6 +117,11 @@ model Requirement {
   description     String    @db.Text
   deadline        DateTime?
   priority        Priority  @default(MEDIUM)
+  responsibleRole String?
+  evidenceNeeded  String?
+  sourcePage      Int?
+  sourceText      String?   @db.Text
+  category        String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
@@ -192,8 +197,13 @@ model PolicyChange {
   fromVersionId   String
   toVersionId     String
   changeType      ChangeType
+  fieldChanged    String?    // e.g. REQUIREMENT, DEADLINE, EVIDENCE, PRIORITY, RESPONSIBILITY
   description     String     @db.Text
   affectedSection String?
+  oldValue        String?    @db.Text
+  newValue        String?    @db.Text
+  sourceReference String?    @db.Text
+  confidence      Float?
   createdAt       DateTime   @default(now())
 
   policy      Policy        @relation(fields: [policyId], references: [id])

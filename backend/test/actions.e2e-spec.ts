@@ -87,6 +87,11 @@ describe('Actions Module E2E Tests (Sprint 4)', { timeout: 30000 }, () => {
   });
 
   afterEach(async () => {
+    if (prisma) {
+      await prisma.organization.deleteMany({
+        where: { slug: 'test-actions-org' },
+      }).catch(() => {});
+    }
     if (app) {
       await app.close();
     }

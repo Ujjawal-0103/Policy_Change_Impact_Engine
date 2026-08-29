@@ -73,6 +73,28 @@ export interface Policy extends BaseEntity {
   name: string;
   description: string | null;
   orgId: string;
+  versionCount?: number;
+  changeCount?: number;
+  totalRequirements?: number;
+  latestVersion?: {
+    id: string;
+    versionNumber: number;
+    status: PolicyVersionStatus;
+    createdAt: string;
+    document?: {
+      id: string;
+      title: string;
+      originalName: string;
+      storageUrl: string;
+    } | null;
+    requirementsCount?: number;
+  } | null;
+  versions?: PolicyVersion[];
+  changes?: PolicyChange[];
+  _count?: {
+    versions: number;
+    changes: number;
+  };
 }
 
 export interface PolicyVersion extends BaseEntity {
@@ -80,6 +102,14 @@ export interface PolicyVersion extends BaseEntity {
   versionNumber: number;
   documentId: string;
   status: PolicyVersionStatus;
+  policy?: { id: string; name: string };
+  document?: Document;
+  requirements?: Requirement[];
+  _count?: {
+    requirements: number;
+    changesFrom?: number;
+    changesTo?: number;
+  };
 }
 
 // ─── Requirements ────────────────────────────────────────────────────────────
@@ -92,6 +122,21 @@ export interface Requirement extends BaseEntity {
   description: string;
   deadline: string | null;
   priority: Priority;
+  responsibleRole?: string | null;
+  evidenceNeeded?: string | null;
+  sourcePage?: number | null;
+  sourceText?: string | null;
+  category?: string | null;
+  policyVersion?: {
+    id: string;
+    versionNumber: number;
+    status: PolicyVersionStatus;
+    policy?: { id: string; name: string };
+  };
+  actions?: Action[];
+  _count?: {
+    actions: number;
+  };
 }
 
 // ─── Actions ─────────────────────────────────────────────────────────────────
@@ -194,8 +239,51 @@ export interface PolicyChange extends BaseEntity {
   fromVersionId: string;
   toVersionId: string;
   changeType: ChangeType;
+  fieldChanged?: string | null; // REQUIREMENT, DEADLINE, EVIDENCE, PRIORITY, RESPONSIBILITY
   description: string;
   affectedSection: string | null;
+  oldValue?: string | null;
+  newValue?: string | null;
+  sourceReference?: string | null;
+  confidence?: number;
+  policy?: { id: string; name: string };
+  fromVersion?: { id: string; versionNumber: number; document?: Document };
+  toVersion?: { id: string; versionNumber: number; document?: Document };
+  impacts?: Impact[];
+}
+
+export interface VersionComparisonSummary {
+  totalChanges: number;
+  addedCount: number;
+  removedCount: number;
+  modifiedCount: number;
+  deadlineChangesCount: number;
+  evidenceChangesCount: number;
+}
+
+export interface PolicyComparisonResponse {
+  policyId: string;
+  policyName: string;
+  fromVersion: {
+    id: string;
+    versionNumber: number;
+    status: PolicyVersionStatus;
+    documentTitle?: string;
+    documentUrl?: string;
+    requirementsCount: number;
+    createdAt: string;
+  };
+  toVersion: {
+    id: string;
+    versionNumber: number;
+    status: PolicyVersionStatus;
+    documentTitle?: string;
+    documentUrl?: string;
+    requirementsCount: number;
+    createdAt: string;
+  };
+  summary: VersionComparisonSummary;
+  changes: PolicyChange[];
 }
 
 export interface Impact extends BaseEntity {
