@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import type { Policy, PolicyVersion, Requirement, Priority } from '@/types';
 import { useRouter } from 'next/navigation';
+import { PolicyVersionTimeline } from './PolicyVersionTimeline';
 
 interface PolicyDetailsModalProps {
   policyId: string | null;
@@ -331,6 +332,16 @@ export function PolicyDetailsModal({ policyId, onClose, onNewVersionClick }: Pol
 
           {/* Active Version Requirements & Document Inspector */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '1.5rem', backgroundColor: '#ffffff' }}>
+            {policy && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <PolicyVersionTimeline
+                  policy={policy}
+                  selectedVersionId={activeVersionId}
+                  onSelectVersion={(ver) => setActiveVersionId(ver.id)}
+                />
+              </div>
+            )}
+
             {activeVersion ? (
               <div>
                 {/* Version Overview Card */}

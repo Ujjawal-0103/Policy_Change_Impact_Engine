@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { api } from '@/lib/api';
 import type { Action, ActionStatus, Priority, Evidence } from '@/types';
 import { EvidenceUploadModal } from './EvidenceUploadModal';
@@ -564,6 +565,102 @@ export function ActionDetailsDrawer({
               </div>
             </div>
 
+            {/* Upstream Policy Impact Context Section */}
+            {action.impacts && action.impacts.length > 0 && (
+              <div
+                style={{
+                  backgroundColor: '#faf5ff',
+                  border: '1px solid #e9d5ff',
+                  borderRadius: '0.5rem',
+                  padding: '1.25rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#7e22ce', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                    ⚡ Impacted by Policy Change ({action.impacts.length})
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                  {action.impacts.map((imp) => {
+                    const sevBg = imp.severity === 'CRITICAL' ? '#fee2e2' : imp.severity === 'HIGH' ? '#ffedd5' : imp.severity === 'LOW' ? '#f1f5f9' : '#dbeafe';
+                    const sevColor = imp.severity === 'CRITICAL' ? '#991b1b' : imp.severity === 'HIGH' ? '#c2410c' : imp.severity === 'LOW' ? '#475569' : '#1e40af';
+                    const pc = imp.policyChange;
+
+                    return (
+                      <div
+                        key={imp.id}
+                        style={{
+                          backgroundColor: '#ffffff',
+                          border: '1px solid #e9d5ff',
+                          borderRadius: '0.375rem',
+                          padding: '0.875rem 1rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                          <span
+                            style={{
+                              fontSize: '0.6875rem',
+                              fontWeight: 700,
+                              padding: '0.125rem 0.5rem',
+                              borderRadius: '0.25rem',
+                              backgroundColor: sevBg,
+                              color: sevColor,
+                            }}
+                          >
+                            SEVERITY: {imp.severity}
+                          </span>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <Link
+                              href={`/impact?impactId=${imp.id}`}
+                              style={{
+                                fontSize: '0.6875rem',
+                                color: '#7e22ce',
+                                textDecoration: 'none',
+                                fontWeight: 600,
+                              }}
+                            >
+                              Open Impact ↗
+                            </Link>
+                            {pc?.policyId && (
+                              <Link
+                                href={`/changes?policyId=${pc.policyId}`}
+                                style={{
+                                  fontSize: '0.6875rem',
+                                  color: '#2563eb',
+                                  textDecoration: 'none',
+                                  fontWeight: 600,
+                                }}
+                              >
+                                Compare Versions ↗
+                              </Link>
+                            )}
+                          </div>
+                        </div>
+
+                        <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#0f172a', marginBottom: '0.25rem' }}>
+                          {imp.description}
+                        </div>
+
+                        {imp.reason && (
+                          <p style={{ fontSize: '0.75rem', color: '#6b21a8', margin: '0 0 0.375rem 0', fontStyle: 'italic' }}>
+                            {imp.reason}
+                          </p>
+                        )}
+
+                        {pc && (
+                          <div style={{ fontSize: '0.75rem', color: '#475569', backgroundColor: '#f8fafc', padding: '0.375rem 0.5rem', borderRadius: '0.25rem' }}>
+                            <strong>Change:</strong> [{pc.changeType}] {pc.description}
+                            {pc.affectedSection && <span> • § {pc.affectedSection}</span>}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Linked Requirement Section */}
             {action.requirement && (
               <div
@@ -583,6 +680,11 @@ export function ActionDetailsDrawer({
                 {action.requirement.policyVersion?.policy && (
                   <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.5rem' }}>
                     Policy: <strong>{action.requirement.policyVersion.policy.name}</strong> (Version {action.requirement.policyVersion.versionNumber})
+                  </div>
+                )}
+                {action.requirement.sourcePage && (
+                  <div style={{ fontSize: '0.6875rem', color: '#059669', fontWeight: 600 }}>
+                    📄 Cited on Page {action.requirement.sourcePage}
                   </div>
                 )}
               </div>

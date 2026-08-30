@@ -12,11 +12,11 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    template: '%s | Policy Change Impact Engine',
-    default: 'Policy Change Impact Engine',
+    template: '%s | PoliTrace',
+    default: 'PoliTrace — Policy Change Impact Intelligence',
   },
   description:
-    'AI-powered platform that converts policy documents into structured requirements, actions, and responsibilities — and maps changes between policy versions to organizational workflows.',
+    'PoliTrace: AI-powered policy change impact intelligence. Compare policy versions, identify downstream impacts, trace affected requirements and actions, and ensure continuous operational compliance.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -222,6 +222,98 @@ export default function DocumentDetailPage() {
                 </div>
               </div>
             </div>
+
+            {/* Document -> Policy Provenance Section */}
+            {document.policyVersions && document.policyVersions.length > 0 && (
+              <div
+                style={{
+                  marginTop: '1.25rem',
+                  padding: '1rem 1.25rem',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '0.5rem',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.625rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                  <span>🔗</span> Document & Policy Provenance
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                  {document.policyVersions.map((pv) => (
+                    <div
+                      key={pv.id}
+                      style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        flexWrap: 'wrap',
+                        gap: '0.75rem',
+                        padding: '0.625rem 0.875rem',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '0.375rem',
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 700, color: '#0f172a' }}>
+                          {pv.policy?.name || 'Linked Policy'}
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.125rem' }}>
+                          Version {pv.versionNumber} • Status: <span style={{ fontWeight: 600, color: pv.status === 'ACTIVE' ? '#166534' : '#64748b' }}>{pv.status}</span>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        <Link
+                          href={`/policies?policyId=${pv.policyId}`}
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            padding: '0.3125rem 0.625rem',
+                            backgroundColor: '#eff6ff',
+                            color: '#2563eb',
+                            borderRadius: '0.25rem',
+                            textDecoration: 'none',
+                            border: '1px solid #bfdbfe',
+                          }}
+                        >
+                          Open Policy ➔
+                        </Link>
+                        <Link
+                          href={`/changes?policyId=${pv.policyId}`}
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            padding: '0.3125rem 0.625rem',
+                            backgroundColor: '#f1f5f9',
+                            color: '#334155',
+                            borderRadius: '0.25rem',
+                            textDecoration: 'none',
+                            border: '1px solid #cbd5e1',
+                          }}
+                        >
+                          Compare Version ➔
+                        </Link>
+                        <Link
+                          href={`/impact?policyId=${pv.policyId}`}
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            padding: '0.3125rem 0.625rem',
+                            backgroundColor: '#fef2f2',
+                            color: '#991b1b',
+                            borderRadius: '0.25rem',
+                            textDecoration: 'none',
+                            border: '1px solid #fecaca',
+                          }}
+                        >
+                          View Impacts ➔
+                        </Link>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Extracted Page Text Section */}

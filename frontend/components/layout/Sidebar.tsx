@@ -1,8 +1,12 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAuth } from '@/context/AuthContext';
+import { UserProfileModal } from './UserProfileModal';
+import { GlobalSearchModal } from './GlobalSearchModal';
+import { AttentionCenter } from './AttentionCenter';
 
 interface NavItem {
   href: string;
@@ -75,30 +79,156 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isAttentionOpen, setIsAttentionOpen] = useState(false);
+  const [attentionCount, setAttentionCount] = useState(0);
+
+  // Global Keyboard Shortcut: Ctrl+K / Cmd+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/';
     return pathname.startsWith(href);
   };
 
+  const userInitials = user?.name
+    ? user.name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2)
+    : 'U';
+
   return (
     <aside className="app-sidebar">
       {/* Brand */}
       <div className="sidebar-brand">
         <div style={{
-          width: '2rem', height: '2rem', borderRadius: '0.5rem',
-          background: 'var(--color-primary)', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          width: '2.25rem', height: '2.25rem', borderRadius: '0.5rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          overflow: 'hidden',
         }}>
-          <svg width="16" height="16" fill="none" stroke="white" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-          </svg>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/politrace-logo.png"
+            alt="PoliTrace"
+            width={36}
+            height={36}
+            style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            onError={(e) => {
+              (e.currentTarget as HTMLElement).style.display = 'none';
+              const next = e.currentTarget.nextElementSibling as HTMLElement | null;
+              if (next) next.style.display = 'flex';
+            }}
+          />
+          <div style={{
+            display: 'none', width: '100%', height: '100%', backgroundColor: '#2563eb',
+            borderRadius: '0.5rem', alignItems: 'center', justifyContent: 'center', color: '#ffffff',
+            fontWeight: 800, fontSize: '0.875rem'
+          }}>
+            PT
+          </div>
         </div>
         <div>
-          <div className="sidebar-brand-name">Policy Engine</div>
-          <div className="sidebar-brand-sub">Impact Platform</div>
+          <div className="sidebar-brand-name" style={{ display: 'flex', alignItems: 'center', gap: '0.125rem' }}>
+            <span style={{ color: '#0f172a', fontWeight: 800 }}>Poli</span>
+            <span style={{ color: '#2563eb', fontWeight: 800 }}>Trace</span>
+          </div>
+          <div className="sidebar-brand-sub">Policy Impact Intelligence</div>
         </div>
+      </div>
+
+      {/* Quick Actions: Spotlight Search & Attention Center */}
+      <div style={{ padding: '0 1rem 0.75rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+        <button
+          type="button"
+          onClick={() => setIsSearchOpen(true)}
+          style={{
+            width: '100%',
+            padding: '0.5rem 0.75rem',
+            backgroundColor: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            borderRadius: '0.375rem',
+            color: '#64748b',
+            fontSize: '0.75rem',
+            fontWeight: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            transition: 'border-color 0.15s ease',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span>🔍</span> Search workspace...
+          </span>
+          <kbd
+            style={{
+              backgroundColor: '#ffffff',
+              border: '1px solid #cbd5e1',
+              padding: '0.1rem 0.35rem',
+              borderRadius: '0.2rem',
+              fontSize: '0.6875rem',
+              fontWeight: 700,
+            }}
+          >
+            ⌘K
+          </kbd>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setIsAttentionOpen(true)}
+          style={{
+            width: '100%',
+            padding: '0.5rem 0.75rem',
+            backgroundColor: attentionCount > 0 ? '#fff7ed' : '#f8fafc',
+            border: '1px solid',
+            borderColor: attentionCount > 0 ? '#fed7aa' : '#e2e8f0',
+            borderRadius: '0.375rem',
+            color: attentionCount > 0 ? '#c2410c' : '#475569',
+            fontSize: '0.75rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            cursor: 'pointer',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <span style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span>🔔</span> Attention Center
+          </span>
+          {attentionCount > 0 ? (
+            <span
+              style={{
+                backgroundColor: '#dc2626',
+                color: '#ffffff',
+                padding: '0.1rem 0.45rem',
+                borderRadius: '9999px',
+                fontSize: '0.6875rem',
+                fontWeight: 800,
+              }}
+            >
+              {attentionCount}
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.6875rem', color: '#16a34a', fontWeight: 700 }}>✓ Clear</span>
+          )}
+        </button>
       </div>
 
       {/* Navigation */}
@@ -118,13 +248,183 @@ export function Sidebar() {
         </nav>
       </div>
 
-      {/* Footer */}
-      <div style={{
-        padding: '1rem', borderTop: '1px solid var(--color-border)',
-        fontSize: '0.75rem', color: 'var(--color-text-muted)',
-      }}>
-        Foundation Phase
-      </div>
+      {/* Authenticated User Profile Section */}
+      {user && (
+        <div style={{ position: 'relative', borderTop: '1px solid var(--color-border)' }}>
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            style={{
+              width: '100%',
+              padding: '0.875rem 1rem',
+              background: isMenuOpen ? '#f1f5f9' : 'transparent',
+              border: 'none',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.75rem',
+              cursor: 'pointer',
+              textAlign: 'left',
+              transition: 'background-color 0.15s ease',
+            }}
+          >
+            {/* Avatar Initials */}
+            <div
+              style={{
+                width: '2.25rem',
+                height: '2.25rem',
+                borderRadius: '9999px',
+                backgroundColor: '#2563eb',
+                color: '#ffffff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.8125rem',
+                fontWeight: 700,
+                flexShrink: 0,
+              }}
+            >
+              {userInitials}
+            </div>
+
+            {/* Name and Org */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div
+                style={{
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  color: 'var(--color-text)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {user.name}
+              </div>
+              <div
+                style={{
+                  fontSize: '0.6875rem',
+                  color: 'var(--color-text-muted)',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                  marginTop: '0.0625rem',
+                }}
+              >
+                🏢 {user.org?.name || 'Organization'}
+              </div>
+            </div>
+
+            {/* Chevron / Popover icon */}
+            <svg
+              style={{
+                width: '1rem',
+                height: '1rem',
+                color: '#94a3b8',
+                transform: isMenuOpen ? 'rotate(180deg)' : 'none',
+                transition: 'transform 0.15s ease',
+              }}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+
+          {/* Popover Menu */}
+          {isMenuOpen && (
+            <div
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: '0.75rem',
+                right: '0.75rem',
+                marginBottom: '0.5rem',
+                backgroundColor: '#ffffff',
+                border: '1px solid #e2e8f0',
+                borderRadius: '0.5rem',
+                boxShadow: '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+                padding: '0.375rem',
+                zIndex: 40,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '0.25rem',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  setIsProfileModalOpen(true);
+                }}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  border: 'none',
+                  background: 'transparent',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  color: '#334155',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#f8fafc')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                👤 View Profile Details
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMenuOpen(false);
+                  logout();
+                }}
+                style={{
+                  padding: '0.5rem 0.75rem',
+                  border: 'none',
+                  background: 'transparent',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  color: '#b91c1c',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#fef2f2')}
+                onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+              >
+                🚪 Sign Out
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* User Profile Details Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
+
+      {/* Global Spotlight Search Modal (⌘K / Ctrl+K) */}
+      <GlobalSearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+      />
+
+      {/* In-App Attention Center Drawer */}
+      <AttentionCenter
+        isOpen={isAttentionOpen}
+        onClose={() => setIsAttentionOpen(false)}
+        onCountChange={(count) => setAttentionCount(count)}
+      />
     </aside>
   );
 }

@@ -1,28 +1,72 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
-import type { Impact, ImpactSeverity, ImpactStatus, ImpactStats, Policy } from '@/types';
+import type { Impact, Action, ImpactSeverity, ImpactStatus, ImpactStats, Policy } from '@/types';
+import { TraceabilityChain } from '@/components/impact/TraceabilityChain';
+import { WhyThisImpactCard } from '@/components/impact/WhyThisImpactCard';
+import { RiskMatrix } from '@/components/impact/RiskMatrix';
+import { ComplianceReportModal } from '@/components/impact/ComplianceReportModal';
 
-export default function ImpactPage() {
+function ImpactPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlPolicyId = searchParams.get('policyId');
+  const urlImpactId = searchParams.get('impactId');
+
   const [impacts, setImpacts] = useState<Impact[]>([]);
+  const [actions, setActions] = useState<Action[]>([]);
   const [stats, setStats] = useState<ImpactStats | null>(null);
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [isReportModalOpen, setIsReportModalOpen] = useState(false);
 
   // Filters
-  const [selectedPolicyId, setSelectedPolicyId] = useState<string>('ALL');
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string>(urlPolicyId || 'ALL');
   const [severityFilter, setSeverityFilter] = useState<string>('ALL');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
+  const [urgencyFilter, setUrgencyFilter] = useState<string>('ALL');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Selected impact for drill-down modal
   const [selectedImpact, setSelectedImpact] = useState<Impact | null>(null);
   const [reanalyzingId, setReanalyzingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+
+  // Synchronize initial deep-linked impact ID if present
+  useEffect(() => {
+    if (urlImpactId) {
+      api.get<Impact>(`/impact/${urlImpactId}`)
+        .then((data) => {
+          setSelectedImpact(data);
+        })
+        .catch(() => {
+          // If direct fetch fails, ignore gracefully
+        });
+    }
+  }, [urlImpactId]);
+
+  const openImpactModal = (imp: Impact) => {
+    setSelectedImpact(imp);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('impactId', imp.id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
+  const closeImpactModal = () => {
+    setSelectedImpact(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('impactId');
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
 
   const fetchPolicies = useCallback(async () => {
     try {
@@ -44,13 +88,15 @@ export default function ImpactPage() {
       if (searchQuery.trim()) queryParams.append('search', searchQuery.trim());
 
       const queryString = queryParams.toString() ? `?${queryParams.toString()}` : '';
-      const [impactsData, statsData] = await Promise.all([
+      const [impactsData, statsData, actionsData] = await Promise.all([
         api.get<Impact[]>(`/impact${queryString}`),
         api.get<ImpactStats>(`/impact/stats${selectedPolicyId !== 'ALL' ? `?policyId=${selectedPolicyId}` : ''}`),
+        api.get<Action[]>('/actions').catch(() => []),
       ]);
 
       setImpacts(impactsData);
       setStats(statsData);
+      setActions(actionsData);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to fetch impact analyses.');
     } finally {
@@ -154,10 +200,28 @@ export default function ImpactPage() {
   };
 
   const filteredImpacts = useMemo(() => {
+    const now = new Date();
+    const sevenDays = new Date();
+    sevenDays.setDate(now.getDate() + 7);
+
     return impacts.filter((imp) => {
       if (selectedPolicyId !== 'ALL' && imp.policyChange?.policyId !== selectedPolicyId) return false;
       if (severityFilter !== 'ALL' && imp.severity !== severityFilter) return false;
       if (statusFilter !== 'ALL' && imp.status !== statusFilter) return false;
+
+      if (urgencyFilter !== 'ALL') {
+        const act = imp.action;
+        if (!act || !act.deadline) {
+          if (urgencyFilter !== 'UPCOMING') return false;
+        } else {
+          const due = new Date(act.deadline);
+          const isOverdue = due < now || act.status === 'OVERDUE';
+          if (urgencyFilter === 'OVERDUE' && !isOverdue) return false;
+          if (urgencyFilter === 'DUE_SOON' && !(due >= now && due <= sevenDays)) return false;
+          if (urgencyFilter === 'UPCOMING' && !(due > sevenDays)) return false;
+        }
+      }
+
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const desc = (imp.description || '').toLowerCase();
@@ -171,18 +235,41 @@ export default function ImpactPage() {
       }
       return true;
     });
-  }, [impacts, selectedPolicyId, severityFilter, statusFilter, searchQuery]);
+  }, [impacts, selectedPolicyId, severityFilter, statusFilter, urgencyFilter, searchQuery]);
 
   return (
     <div style={{ maxWidth: '1400px', margin: '0 auto', paddingBottom: '3rem' }}>
       {/* Page Header */}
-      <div style={{ marginBottom: '1.75rem' }}>
-        <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
-          Policy Change Impact Engine
-        </h1>
-        <p style={{ fontSize: '0.9375rem', color: '#64748b', margin: 0 }}>
-          Trace how policy version differences directly affect operational requirements, actions, team assignments, deadlines, and compliance evidence.
-        </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.75rem' }}>
+        <div>
+          <h1 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#0f172a', margin: '0 0 0.5rem 0' }}>
+            Policy Change Impact Engine
+          </h1>
+          <p style={{ fontSize: '0.9375rem', color: '#64748b', margin: 0 }}>
+            Trace how policy version differences directly affect operational requirements, actions, team assignments, deadlines, and compliance evidence.
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setIsReportModalOpen(true)}
+          style={{
+            padding: '0.5rem 1rem',
+            backgroundColor: '#2563eb',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: '0.375rem',
+            fontSize: '0.8125rem',
+            fontWeight: 700,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.375rem',
+            boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
+          }}
+        >
+          <span>📄</span> Generate Compliance Report
+        </button>
       </div>
 
       {/* Success / Error Alerts */}
@@ -307,6 +394,20 @@ export default function ImpactPage() {
             Workflow updates completed
           </span>
         </div>
+      </div>
+
+      {/* Policy Change Risk Matrix */}
+      <div style={{ marginBottom: '1.5rem' }}>
+        <RiskMatrix
+          impacts={impacts}
+          actions={actions}
+          selectedSeverity={severityFilter !== 'ALL' ? severityFilter : undefined}
+          selectedUrgency={urgencyFilter !== 'ALL' ? urgencyFilter : undefined}
+          onSelectCell={(sev, urg) => {
+            setSeverityFilter(sev);
+            setUrgencyFilter(urg);
+          }}
+        />
       </div>
 
       {/* Filter and Control Bar */}
@@ -635,7 +736,7 @@ export default function ImpactPage() {
                       {/* Actions */}
                       <td style={{ padding: '1rem', verticalAlign: 'top', textAlign: 'right' }}>
                         <button
-                          onClick={() => setSelectedImpact(impact)}
+                          onClick={() => openImpactModal(impact)}
                           style={{
                             padding: '0.375rem 0.75rem',
                             backgroundColor: '#eff6ff',
@@ -672,7 +773,7 @@ export default function ImpactPage() {
             zIndex: 50,
             padding: '1.5rem',
           }}
-          onClick={() => setSelectedImpact(null)}
+          onClick={closeImpactModal}
         >
           <div
             style={{
@@ -680,7 +781,7 @@ export default function ImpactPage() {
               borderRadius: '0.75rem',
               boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04)',
               width: '100%',
-              maxWidth: '750px',
+              maxWidth: '850px',
               maxHeight: '90vh',
               overflowY: 'auto',
               padding: '2rem',
@@ -696,11 +797,11 @@ export default function ImpactPage() {
                   <span style={{ fontSize: '0.75rem', color: '#64748b' }}>Impact Record #{selectedImpact.id.slice(-6)}</span>
                 </div>
                 <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#0f172a', margin: 0 }}>
-                  Impact Assessment & Affected Work
+                  Impact Assessment & Traceability Chain
                 </h2>
               </div>
               <button
-                onClick={() => setSelectedImpact(null)}
+                onClick={closeImpactModal}
                 style={{
                   background: 'none',
                   border: 'none',
@@ -716,142 +817,61 @@ export default function ImpactPage() {
 
             {/* Modal Body */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {/* Reason / Explanation Card */}
-              {selectedImpact.reason && (
-                <div
-                  style={{
-                    backgroundColor: '#f8fafc',
-                    border: '1px solid #e2e8f0',
-                    borderLeft: '4px solid #2563eb',
-                    borderRadius: '0.375rem',
-                    padding: '1rem',
-                  }}
-                >
-                  <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', marginBottom: '0.25rem' }}>
-                    Engine Impact Explanation
-                  </div>
-                  <p style={{ fontSize: '0.875rem', color: '#334155', margin: 0, lineHeight: 1.5 }}>
-                    {selectedImpact.reason}
-                  </p>
-                </div>
-              )}
+              {/* Signature Why This Impact Intelligence Card */}
+              <WhyThisImpactCard
+                impact={selectedImpact}
+                onNavigateAction={(actionId) => {
+                  closeImpactModal();
+                  router.push(`/actions?actionId=${actionId}`);
+                }}
+              />
 
-              {/* Policy Change Context */}
-              <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                  1. Policy Change Context
+              {/* Complete Traceability Chain Component */}
+              <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '0.75rem', fontWeight: 800, color: '#334155', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                  <span>⛓️</span> Complete Traceability Chain
                 </div>
-                <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0f172a', marginBottom: '0.375rem' }}>
-                  Policy: {selectedImpact.policyChange?.policy?.name || 'N/A'} (v{selectedImpact.policyChange?.fromVersion?.versionNumber} ➔ v{selectedImpact.policyChange?.toVersion?.versionNumber})
-                </div>
-                <div style={{ fontSize: '0.8125rem', color: '#475569', marginBottom: '0.5rem' }}>
-                  <strong>Type:</strong> [{selectedImpact.policyChange?.changeType}] {selectedImpact.policyChange?.description}
-                </div>
-                {selectedImpact.policyChange?.affectedSection && (
-                  <div style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.25rem' }}>
-                    <strong>Section:</strong> {selectedImpact.policyChange.affectedSection}
-                  </div>
-                )}
-                {selectedImpact.policyChange?.oldValue && (
-                  <div style={{ fontSize: '0.75rem', backgroundColor: '#fef2f2', color: '#991b1b', padding: '0.375rem 0.5rem', borderRadius: '0.25rem', marginTop: '0.375rem' }}>
-                    <strong>Baseline (Old):</strong> {selectedImpact.policyChange.oldValue}
-                  </div>
-                )}
-                {selectedImpact.policyChange?.newValue && (
-                  <div style={{ fontSize: '0.75rem', backgroundColor: '#f0fdf4', color: '#166534', padding: '0.375rem 0.5rem', borderRadius: '0.25rem', marginTop: '0.375rem' }}>
-                    <strong>Target (New):</strong> {selectedImpact.policyChange.newValue}
-                  </div>
-                )}
-              </div>
-
-              {/* Affected Requirement */}
-              <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                  2. Affected Requirement
-                </div>
-                {selectedImpact.requirement ? (
-                  <div>
-                    <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.25rem' }}>
-                      {selectedImpact.requirement.title}
-                    </div>
-                    {selectedImpact.requirement.description && (
-                      <div style={{ fontSize: '0.8125rem', color: '#475569', marginBottom: '0.5rem' }}>
-                        {selectedImpact.requirement.description}
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '0.75rem', color: '#64748b' }}>
-                      {selectedImpact.requirement.responsibleRole && (
-                        <span><strong>Responsible Role:</strong> {selectedImpact.requirement.responsibleRole}</span>
-                      )}
-                      {selectedImpact.requirement.deadline && (
-                        <span><strong>Requirement Deadline:</strong> {new Date(selectedImpact.requirement.deadline).toLocaleDateString()}</span>
-                      )}
-                      {selectedImpact.requirement.evidenceNeeded && (
-                        <span><strong>Evidence Needed:</strong> {selectedImpact.requirement.evidenceNeeded}</span>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <span style={{ fontSize: '0.8125rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                    No direct requirement mapped. This impact affects general policy adherence.
-                  </span>
-                )}
-              </div>
-
-              {/* Affected Action & Owners */}
-              <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '0.5rem', padding: '1rem' }}>
-                <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
-                  3. Affected Operational Action
-                </div>
-                {selectedImpact.action ? (
-                  <div>
-                    <div style={{ fontSize: '0.9375rem', fontWeight: 700, color: '#0f172a', marginBottom: '0.25rem' }}>
-                      {selectedImpact.action.title}
-                    </div>
-                    <div style={{ fontSize: '0.8125rem', color: '#475569', marginBottom: '0.5rem' }}>
-                      {selectedImpact.action.description}
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.75rem', color: '#475569', backgroundColor: '#f8fafc', padding: '0.75rem', borderRadius: '0.375rem' }}>
-                      <div>
-                        <strong>Assigned Owner:</strong> {selectedImpact.action.assignedTo?.name || selectedImpact.action.department || 'Unassigned'}
-                      </div>
-                      <div>
-                        <strong>Action Status:</strong> {selectedImpact.action.status}
-                      </div>
-                      <div>
-                        <strong>Action Deadline:</strong> {selectedImpact.action.deadline ? new Date(selectedImpact.action.deadline).toLocaleDateString() : 'None set'}
-                      </div>
-                      <div>
-                        <strong>Attached Evidence:</strong> {selectedImpact.action.evidence?.length ? `${selectedImpact.action.evidence.length} artifact(s)` : 'None'}
-                      </div>
-                    </div>
-                  </div>
-                ) : (
-                  <span style={{ fontSize: '0.8125rem', color: '#94a3b8', fontStyle: 'italic' }}>
-                    No operational action created yet for this requirement. Consider creating a new action item.
-                  </span>
-                )}
+                <TraceabilityChain
+                  impact={selectedImpact}
+                  onNavigateAction={() => closeImpactModal()}
+                />
               </div>
 
               {/* Status Update & Re-analysis Controls */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px solid #e2e8f0' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#334155' }}>Update Status:</label>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '1rem',
+                  marginTop: '0.5rem',
+                  paddingTop: '1rem',
+                  borderTop: '1px solid #e2e8f0',
+                  backgroundColor: '#f8fafc',
+                  padding: '1rem',
+                  borderRadius: '0.5rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: '#1e293b' }}>Update Status:</label>
                   {(['IDENTIFIED', 'ASSESSED', 'MITIGATED', 'ACCEPTED'] as ImpactStatus[]).map((st) => (
                     <button
                       key={st}
+                      type="button"
                       disabled={updatingStatusId === selectedImpact.id}
                       onClick={() => handleStatusChange(selectedImpact.id, st)}
                       style={{
-                        padding: '0.25rem 0.625rem',
+                        padding: '0.3125rem 0.75rem',
                         fontSize: '0.75rem',
                         fontWeight: 600,
-                        backgroundColor: selectedImpact.status === st ? '#2563eb' : '#f1f5f9',
+                        backgroundColor: selectedImpact.status === st ? '#2563eb' : '#ffffff',
                         color: selectedImpact.status === st ? '#ffffff' : '#475569',
                         border: '1px solid',
                         borderColor: selectedImpact.status === st ? '#2563eb' : '#cbd5e1',
-                        borderRadius: '0.25rem',
+                        borderRadius: '0.375rem',
                         cursor: 'pointer',
+                        boxShadow: selectedImpact.status === st ? '0 1px 2px rgba(37, 99, 235, 0.2)' : 'none',
                       }}
                     >
                       {st}
@@ -859,29 +879,63 @@ export default function ImpactPage() {
                   ))}
                 </div>
 
-                {selectedImpact.policyChangeId && (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {selectedImpact.policyChangeId && (
+                    <button
+                      type="button"
+                      disabled={reanalyzingId === selectedImpact.policyChangeId}
+                      onClick={() => handleReanalyze(selectedImpact.policyChangeId)}
+                      style={{
+                        padding: '0.375rem 0.875rem',
+                        backgroundColor: '#ffffff',
+                        border: '1px solid #cbd5e1',
+                        borderRadius: '0.375rem',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        color: '#334155',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      {reanalyzingId === selectedImpact.policyChangeId ? 'Re-analyzing...' : '↻ Re-run Analysis'}
+                    </button>
+                  )}
                   <button
-                    disabled={reanalyzingId === selectedImpact.policyChangeId}
-                    onClick={() => handleReanalyze(selectedImpact.policyChangeId)}
+                    type="button"
+                    onClick={closeImpactModal}
                     style={{
                       padding: '0.375rem 0.875rem',
-                      backgroundColor: '#f8fafc',
-                      border: '1px solid #cbd5e1',
+                      backgroundColor: '#2563eb',
+                      color: '#ffffff',
+                      border: 'none',
                       borderRadius: '0.375rem',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      color: '#334155',
                       cursor: 'pointer',
                     }}
                   >
-                    {reanalyzingId === selectedImpact.policyChangeId ? 'Re-analyzing...' : '↻ Re-run Analysis'}
+                    Done
                   </button>
-                )}
+                </div>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {/* Compliance Impact Report Modal */}
+      <ComplianceReportModal
+        isOpen={isReportModalOpen}
+        onClose={() => setIsReportModalOpen(false)}
+        defaultPolicyId={selectedPolicyId !== 'ALL' ? selectedPolicyId : undefined}
+      />
     </div>
+  );
+}
+
+export default function ImpactPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading impact engine...</div>}>
+      <ImpactPageContent />
+    </Suspense>
   );
 }

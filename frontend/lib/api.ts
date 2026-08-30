@@ -65,7 +65,14 @@ async function request<T>(
       errorMsg = await response.text().catch(() => response.statusText);
     }
 
-    if (response.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+    const isPublicPath =
+      typeof window !== 'undefined' &&
+      (window.location.pathname.startsWith('/login') ||
+        window.location.pathname.startsWith('/register') ||
+        window.location.pathname.startsWith('/forgot-password') ||
+        window.location.pathname.startsWith('/reset-password'));
+
+    if (response.status === 401 && !isPublicPath) {
       // Clear invalid/expired token and notify
       setAuthToken(null);
       window.dispatchEvent(new Event('auth:unauthorized'));

@@ -8,9 +8,14 @@ import { Sidebar } from './Sidebar';
 function ShellContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, isLoading } = useAuth();
-  const isLoginPage = pathname?.startsWith('/login');
 
-  if (isLoginPage) {
+  const isPublicPage =
+    pathname?.startsWith('/login') ||
+    pathname?.startsWith('/register') ||
+    pathname?.startsWith('/forgot-password') ||
+    pathname?.startsWith('/reset-password');
+
+  if (isPublicPage) {
     return <>{children}</>;
   }
 

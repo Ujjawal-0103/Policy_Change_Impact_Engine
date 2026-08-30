@@ -82,14 +82,44 @@ export class ActionsService {
           select: {
             id: true,
             title: true,
+            description: true,
+            category: true,
             priority: true,
             deadline: true,
+            responsibleRole: true,
+            evidenceNeeded: true,
+            sourcePage: true,
+            sourceText: true,
             policyVersionId: true,
             policyVersion: {
               select: {
+                id: true,
+                versionNumber: true,
+                status: true,
                 policy: {
                   select: { id: true, name: true, orgId: true },
                 },
+              },
+            },
+          },
+        },
+        impacts: {
+          select: {
+            id: true,
+            severity: true,
+            status: true,
+            description: true,
+            reason: true,
+            policyChange: {
+              select: {
+                id: true,
+                changeType: true,
+                fieldChanged: true,
+                description: true,
+                affectedSection: true,
+                oldValue: true,
+                newValue: true,
+                sourceReference: true,
               },
             },
           },
@@ -105,6 +135,7 @@ export class ActionsService {
           select: {
             id: true,
             title: true,
+            description: true,
             fileUrl: true,
             createdAt: true,
           },
@@ -113,6 +144,7 @@ export class ActionsService {
           select: {
             evidence: true,
             history: true,
+            impacts: true,
           },
         },
       },
@@ -157,6 +189,7 @@ export class ActionsService {
     let completed = 0;
     let blocked = 0;
     let overdue = 0;
+    let highPriority = 0;
 
     const byPriority: Record<Priority, number> = {
       LOW: 0,
@@ -168,6 +201,9 @@ export class ActionsService {
     for (const act of actions) {
       if (act.priority && byPriority[act.priority] !== undefined) {
         byPriority[act.priority]++;
+      }
+      if (act.priority === Priority.HIGH || act.priority === Priority.CRITICAL) {
+        highPriority++;
       }
 
       if (act.status === ActionStatus.COMPLETED) {
@@ -197,6 +233,7 @@ export class ActionsService {
       completed,
       blocked,
       overdue,
+      highPriority,
       completionRate,
       byPriority,
     };
@@ -218,6 +255,24 @@ export class ActionsService {
                 status: true,
                 policy: { select: { id: true, name: true, orgId: true } },
                 document: { select: { id: true, title: true, storageUrl: true } },
+              },
+            },
+          },
+        },
+        impacts: {
+          include: {
+            policyChange: {
+              select: {
+                id: true,
+                changeType: true,
+                fieldChanged: true,
+                description: true,
+                affectedSection: true,
+                oldValue: true,
+                newValue: true,
+                sourceReference: true,
+                fromVersion: { select: { id: true, versionNumber: true } },
+                toVersion: { select: { id: true, versionNumber: true } },
               },
             },
           },

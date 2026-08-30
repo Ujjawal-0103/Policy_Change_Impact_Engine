@@ -583,7 +583,41 @@ export class PoliciesService {
         const fresh = await this.prisma.policyChange.findUnique({
           where: { id: createdChange.id },
           include: {
-            impacts: true,
+            impacts: {
+              include: {
+                requirement: {
+                  select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    category: true,
+                    priority: true,
+                    deadline: true,
+                    responsibleRole: true,
+                    evidenceNeeded: true,
+                    sourcePage: true,
+                    sourceText: true,
+                  },
+                },
+                action: {
+                  select: {
+                    id: true,
+                    title: true,
+                    description: true,
+                    status: true,
+                    priority: true,
+                    department: true,
+                    deadline: true,
+                    assignedTo: {
+                      select: { id: true, name: true, email: true },
+                    },
+                    evidence: {
+                      select: { id: true, title: true, description: true, fileUrl: true },
+                    },
+                  },
+                },
+              },
+            },
           },
         });
 
@@ -660,7 +694,41 @@ export class PoliciesService {
         toVersion: {
           select: { id: true, versionNumber: true },
         },
-        impacts: true,
+        impacts: {
+          include: {
+            requirement: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                category: true,
+                priority: true,
+                deadline: true,
+                responsibleRole: true,
+                evidenceNeeded: true,
+                sourcePage: true,
+                sourceText: true,
+              },
+            },
+            action: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                status: true,
+                priority: true,
+                department: true,
+                deadline: true,
+                assignedTo: {
+                  select: { id: true, name: true, email: true },
+                },
+                evidence: {
+                  select: { id: true, title: true, description: true, fileUrl: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
   }
@@ -679,7 +747,41 @@ export class PoliciesService {
         toVersion: {
           include: { document: true },
         },
-        impacts: true,
+        impacts: {
+          include: {
+            requirement: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                category: true,
+                priority: true,
+                deadline: true,
+                responsibleRole: true,
+                evidenceNeeded: true,
+                sourcePage: true,
+                sourceText: true,
+              },
+            },
+            action: {
+              select: {
+                id: true,
+                title: true,
+                description: true,
+                status: true,
+                priority: true,
+                department: true,
+                deadline: true,
+                assignedTo: {
+                  select: { id: true, name: true, email: true },
+                },
+                evidence: {
+                  select: { id: true, title: true, description: true, fileUrl: true },
+                },
+              },
+            },
+          },
+        },
       },
     });
 

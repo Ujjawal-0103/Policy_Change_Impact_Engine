@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import type { Policy } from '@/types';
 
 interface PolicyListProps {
@@ -287,6 +288,26 @@ export function PolicyList({
                   Compare
                 </button>
               )}
+
+              <Link
+                href={`/impact?policyId=${policy.id}`}
+                style={{
+                  padding: '0.4375rem 0.75rem',
+                  backgroundColor: '#faf5ff',
+                  border: '1px solid #f3e8ff',
+                  borderRadius: '0.375rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: '#7e22ce',
+                  textDecoration: 'none',
+                  whiteSpace: 'nowrap',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                }}
+              >
+                ⚡ Impacts
+              </Link>
             </div>
           </div>
         );

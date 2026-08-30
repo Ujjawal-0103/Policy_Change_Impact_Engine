@@ -1,12 +1,16 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import type { Action, ActionStats, ActionStatus, Priority } from '@/types';
 import { CreateActionModal } from '@/components/actions/CreateActionModal';
 import { ActionDetailsDrawer } from '@/components/actions/ActionDetailsDrawer';
 
-export default function ActionsPage() {
+function ActionsPageContent() {
+  const searchParams = useSearchParams();
+  const urlActionId = searchParams.get('actionId');
+
   const [actions, setActions] = useState<Action[]>([]);
   const [stats, setStats] = useState<ActionStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -19,7 +23,25 @@ export default function ActionsPage() {
 
   // Modal / Drawer states
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [selectedActionId, setSelectedActionId] = useState<string | null>(null);
+  const [selectedActionId, setSelectedActionId] = useState<string | null>(urlActionId || null);
+
+  const openActionDrawer = (id: string) => {
+    setSelectedActionId(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('actionId', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
+  const closeActionDrawer = () => {
+    setSelectedActionId(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('actionId');
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
 
   const fetchActionsAndStats = useCallback(async () => {
     try {
@@ -453,7 +475,7 @@ export default function ActionsPage() {
                   return (
                     <tr
                       key={action.id}
-                      onClick={() => setSelectedActionId(action.id)}
+                      onClick={() => openActionDrawer(action.id)}
                       style={{
                         borderBottom: '1px solid #e2e8f0',
                         cursor: 'pointer',
@@ -472,6 +494,26 @@ export default function ActionsPage() {
                             <span>Mandate:</span>
                             <span style={{ color: '#2563eb', fontWeight: 500 }}>
                               {action.requirement.title}
+                            </span>
+                          </div>
+                        )}
+                        {action.impacts && action.impacts.length > 0 && (
+                          <div style={{ marginTop: '0.25rem' }}>
+                            <span
+                              style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: '0.25rem',
+                                fontSize: '0.6875rem',
+                                fontWeight: 700,
+                                backgroundColor: '#fef3c7',
+                                color: '#92400e',
+                                border: '1px solid #fde68a',
+                                borderRadius: '0.25rem',
+                                padding: '0.125rem 0.375rem',
+                              }}
+                            >
+                              ⚡ Impacted by Policy Change ({action.impacts.length})
                             </span>
                           </div>
                         )}
@@ -519,13 +561,13 @@ export default function ActionsPage() {
                               })}
                             </div>
                             {action.isOverdue && action.status !== 'COMPLETED' && (
-                              <div style={{ fontSize: '0.6875rem', fontWeight: 700, color: '#b91c1c', marginTop: '0.125rem' }}>
-                                ⚠️ OVERDUE
-                              </div>
+                              <span style={{ fontSize: '0.6875rem', color: '#b91c1c', fontWeight: 600 }}>
+                                ⚠️ Overdue
+                              </span>
                             )}
                           </div>
                         ) : (
-                          <span style={{ color: '#94a3b8', fontSize: '0.8125rem' }}>—</span>
+                          <span style={{ color: '#94a3b8', fontSize: '0.8125rem' }}>No deadline</span>
                         )}
                       </td>
 
@@ -541,14 +583,15 @@ export default function ActionsPage() {
                             )
                           }
                           style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
                             padding: '0.25rem 0.5rem',
                             borderRadius: '0.25rem',
-                            fontSize: '0.75rem',
-                            fontWeight: 700,
                             border: `1px solid ${statusStyle.border}`,
                             backgroundColor: statusStyle.bg,
                             color: statusStyle.text,
                             cursor: 'pointer',
+                            outline: 'none',
                           }}
                         >
                           <option value="PENDING">Pending</option>
@@ -597,9 +640,17 @@ export default function ActionsPage() {
       {/* Action Details Drawer */}
       <ActionDetailsDrawer
         actionId={selectedActionId}
-        onClose={() => setSelectedActionId(null)}
+        onClose={closeActionDrawer}
         onActionUpdated={() => fetchActionsAndStats()}
       />
     </>
+  );
+}
+
+export default function ActionsPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading actions...</div>}>
+      <ActionsPageContent />
+    </Suspense>
   );
 }

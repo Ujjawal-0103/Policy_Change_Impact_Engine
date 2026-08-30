@@ -44,6 +44,7 @@ export interface Document extends BaseEntity {
     name: string;
     slug: string;
   };
+  policyVersions?: PolicyVersion[];
 }
 
 export interface DocumentPage {
@@ -134,8 +135,10 @@ export interface Requirement extends BaseEntity {
     policy?: { id: string; name: string };
   };
   actions?: Action[];
+  impacts?: Impact[];
   _count?: {
     actions: number;
+    impacts?: number;
   };
 }
 
@@ -167,21 +170,30 @@ export interface Action extends BaseEntity {
   requirement?: {
     id: string;
     title: string;
+    description?: string;
+    category?: string | null;
     priority?: Priority;
     deadline?: string | null;
+    responsibleRole?: string | null;
+    evidenceNeeded?: string | null;
+    sourcePage?: number | null;
+    sourceText?: string | null;
     policyVersionId?: string;
     policyVersion?: {
       id: string;
       versionNumber: number;
+      status?: PolicyVersionStatus;
       policy?: { id: string; name: string };
       document?: { id: string; title: string; storageUrl: string };
     };
   };
+  impacts?: Impact[];
   evidence?: Evidence[];
   history?: ActionHistory[];
   _count?: {
     evidence: number;
     history: number;
+    impacts?: number;
   };
 }
 
@@ -209,12 +221,9 @@ export interface ActionStats {
   overdue: number;
   blocked: number;
   skipped: number;
-  byPriority: {
-    LOW: number;
-    MEDIUM: number;
-    HIGH: number;
-    CRITICAL: number;
-  };
+  highPriority?: number;
+  completionRate: number;
+  byPriority: Record<Priority, number>;
 }
 
 // ─── Evidence ────────────────────────────────────────────────────────────────
@@ -299,11 +308,13 @@ export interface Impact extends BaseEntity {
     id: string;
     title: string;
     description?: string;
+    category?: string | null;
     priority: Priority;
     deadline: string | null;
     responsibleRole?: string | null;
     evidenceNeeded?: string | null;
     sourcePage?: number | null;
+    sourceText?: string | null;
     actions?: Action[];
   } | null;
   action?: {

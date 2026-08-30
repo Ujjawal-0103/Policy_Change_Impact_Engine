@@ -41,7 +41,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
 
-  const isPublicRoute = pathname?.startsWith('/login') || pathname?.startsWith('/register');
+  const isPublicRoute =
+    pathname?.startsWith('/login') ||
+    pathname?.startsWith('/register') ||
+    pathname?.startsWith('/forgot-password') ||
+    pathname?.startsWith('/reset-password');
 
   useEffect(() => {
     const handleUnauthorized = () => {

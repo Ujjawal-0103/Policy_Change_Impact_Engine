@@ -3,6 +3,7 @@ import {
   ConflictException,
   UnauthorizedException,
   NotFoundException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -11,6 +12,9 @@ import bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
+import { ForgotPasswordDto } from './dto/forgot-password.dto.js';
+import { ResetPasswordDto } from './dto/reset-password.dto.js';
+import { EmailService } from '../email/email.service.js';
 
 @Injectable()
 export class AuthService {
@@ -20,6 +24,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly emailService: EmailService,
   ) {}
 
   /**
@@ -264,5 +269,104 @@ export class AuthService {
     }
 
     return user;
+  }
+
+  /**
+   * Handles forgot-password requests in a timing-safe, generic manner.
+   * Always returns a generic response regardless of whether the account exists.
+   */
+  async forgotPassword(dto: ForgotPasswordDto): Promise<{ message: string }> {
+    const genericResponse = {
+      message:
+        'If an account exists for this email, a password reset link will be sent.',
+    };
+
+    const normalizedEmail = dto.email.trim().toLowerCase();
+    const user = await this.prisma.user.findUnique({
+      where: { email: normalizedEmail },
+    });
+
+    if (!user) {
+      return genericResponse;
+    }
+
+    const secret = `${this.getJwtSecret()}_${user.password}`;
+    const token = this.jwtService.sign(
+      {
+        sub: user.id,
+        email: user.email,
+        purpose: 'password_reset',
+      },
+      {
+        secret,
+        expiresIn: '15m',
+      },
+    );
+
+    const appUrl =
+      this.configService.get<string>('APP_URL') ||
+      process.env.APP_URL ||
+      'http://localhost:3000';
+    const resetUrl = `${appUrl}/reset-password?token=${token}`;
+
+    // Dispatch transactional password reset email via EmailService (Resend)
+    await this.emailService.sendPasswordResetEmail(user.email, resetUrl);
+
+    return genericResponse;
+  }
+
+  /**
+   * Validates single-use reset token and updates the user's password.
+   */
+  async resetPassword(dto: ResetPasswordDto): Promise<{ message: string }> {
+    const { token, password } = dto;
+
+    if (!password || password.length < 8) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long.',
+      );
+    }
+
+    let decoded: any;
+    try {
+      decoded = this.jwtService.decode(token);
+    } catch {
+      throw new BadRequestException('Invalid or expired password reset token.');
+    }
+
+    if (!decoded || !decoded.sub || decoded.purpose !== 'password_reset') {
+      throw new BadRequestException('Invalid or expired password reset token.');
+    }
+
+    const user = await this.prisma.user.findUnique({
+      where: { id: decoded.sub },
+    });
+
+    if (!user) {
+      throw new BadRequestException('Invalid or expired password reset token.');
+    }
+
+    const secret = `${this.getJwtSecret()}_${user.password}`;
+    try {
+      this.jwtService.verify(token, { secret });
+    } catch {
+      throw new BadRequestException('Invalid or expired password reset token.');
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { password: hashedPassword },
+    });
+
+    this.logger.log(
+      `Password successfully reset for user ID: ${user.id} (${user.email}). Token invalidated.`,
+    );
+
+    return {
+      message:
+        'Password has been reset successfully. You can now sign in with your new password.',
+    };
   }
 }

@@ -1,16 +1,19 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { api, ApiError } from '@/lib/api';
 import type { Policy, PolicyVersion } from '@/types';
 import { PolicyList } from '@/components/policies/PolicyList';
 import { CreatePolicyModal } from '@/components/policies/CreatePolicyModal';
 import { NewVersionModal } from '@/components/policies/NewVersionModal';
 import { PolicyDetailsModal } from '@/components/policies/PolicyDetailsModal';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function PoliciesPage() {
+function PoliciesPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlPolicyId = searchParams.get('policyId');
+
   const [policies, setPolicies] = useState<Policy[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +21,25 @@ export default function PoliciesPage() {
   // Modals state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newVersionPolicy, setNewVersionPolicy] = useState<Policy | null>(null);
-  const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(null);
+  const [selectedPolicyId, setSelectedPolicyId] = useState<string | null>(urlPolicyId || null);
+
+  const openPolicyModal = (id: string) => {
+    setSelectedPolicyId(id);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('policyId', id);
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
+
+  const closePolicyModal = () => {
+    setSelectedPolicyId(null);
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('policyId');
+      window.history.replaceState(null, '', url.toString());
+    }
+  };
 
   const fetchPolicies = async () => {
     setIsLoading(true);
@@ -175,7 +196,7 @@ export default function PoliciesPage() {
       <PolicyList
         policies={policies}
         isLoading={isLoading}
-        onSelectPolicy={(id) => setSelectedPolicyId(id)}
+        onSelectPolicy={(id) => openPolicyModal(id)}
         onNewVersion={(policy) => setNewVersionPolicy(policy)}
         onCompare={(policy) => handleCompare(policy)}
         onCreatePolicy={() => setIsCreateModalOpen(true)}
@@ -199,9 +220,17 @@ export default function PoliciesPage() {
       {/* Policy Details / Inspector Modal */}
       <PolicyDetailsModal
         policyId={selectedPolicyId}
-        onClose={() => setSelectedPolicyId(null)}
+        onClose={closePolicyModal}
         onNewVersionClick={(policy) => setNewVersionPolicy(policy)}
       />
     </>
+  );
+}
+
+export default function PoliciesPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading policies...</div>}>
+      <PoliciesPageContent />
+    </Suspense>
   );
 }

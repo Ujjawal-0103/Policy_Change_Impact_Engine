@@ -3,7 +3,7 @@ import { PoliciesService } from './policies.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AiService } from '../ai/ai.service.js';
 import { NotFoundException, BadRequestException } from '@nestjs/common';
-import { PolicyVersionStatus } from '@prisma/client';
+import { PolicyVersionStatus, ChangeType } from '@prisma/client';
 
 describe('PoliciesService', () => {
   let service: PoliciesService;
@@ -57,6 +57,7 @@ describe('PoliciesService', () => {
         ),
         findMany: vi.fn().mockResolvedValue([]),
         findUnique: vi.fn().mockResolvedValue(null),
+        findFirst: vi.fn().mockResolvedValue(null),
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
       },
     };
@@ -363,6 +364,84 @@ describe('PoliciesService', () => {
           mockOrgId,
         ),
       ).rejects.toThrow(BadRequestException);
+    });
+  });
+
+  describe('getChanges & getChangeById', () => {
+    it('retrieves changes with enriched impact, requirement, and action traceability', async () => {
+      prismaMock.policy.findFirst.mockResolvedValueOnce({
+        id: 'pol-1',
+        name: 'InfoSec Policy',
+        orgId: mockOrgId,
+      });
+
+      const mockChangeWithTraceability = {
+        id: 'change-1',
+        policyId: 'pol-1',
+        fromVersionId: 'ver-1',
+        toVersionId: 'ver-2',
+        changeType: ChangeType.MODIFIED,
+        fieldChanged: 'DEADLINE',
+        description: 'MFA deadline changed from 30 days to 7 days',
+        affectedSection: 'Section 4.1',
+        oldValue: '30 days',
+        newValue: '7 days',
+        sourceReference: 'Page 2',
+        impacts: [
+          {
+            id: 'imp-1',
+            severity: 'HIGH',
+            status: 'IDENTIFIED',
+            description: 'Action Impact: Deploy MFA Tokens',
+            reason: 'Deadline shortened from 30 to 7 days',
+            requirement: {
+              id: 'req-1',
+              title: 'MFA Enforcement',
+              sourcePage: 2,
+              sourceText: 'All administrators must use MFA within 7 days.',
+            },
+            action: {
+              id: 'act-1',
+              title: 'Deploy Hardware MFA Tokens',
+              department: 'IT Security',
+              assignedTo: { id: 'usr-1', name: 'Alice Admin', email: 'alice@example.com' },
+              evidence: [{ id: 'ev-1', title: 'MFA Audit Log', fileUrl: 'https://example.com/log.pdf' }],
+            },
+          },
+        ],
+      };
+
+      prismaMock.policyChange.findMany.mockResolvedValueOnce([mockChangeWithTraceability]);
+
+      const changes = await service.getChanges('pol-1', 'ver-1', 'ver-2', mockOrgId);
+
+      expect(changes).toHaveLength(1);
+      expect(changes[0].impacts[0]?.requirement?.sourceText).toBe(
+        'All administrators must use MFA within 7 days.',
+      );
+      expect(changes[0].impacts[0]?.action?.assignedTo?.name).toBe('Alice Admin');
+      expect(changes[0].impacts[0]?.action?.evidence).toHaveLength(1);
+    });
+
+    it('getChangeById returns single change with full nested traceability', async () => {
+      const mockChange = {
+        id: 'change-1',
+        policyId: 'pol-1',
+        policy: { id: 'pol-1', name: 'InfoSec Policy', orgId: mockOrgId },
+        impacts: [
+          {
+            id: 'imp-1',
+            requirement: { id: 'req-1', title: 'MFA' },
+            action: { id: 'act-1', title: 'Deploy MFA' },
+          },
+        ],
+      };
+
+      prismaMock.policyChange.findFirst.mockResolvedValueOnce(mockChange);
+
+      const change = await service.getChangeById('change-1', mockOrgId);
+      expect(change.id).toBe('change-1');
+      expect(change.impacts[0]?.action?.title).toBe('Deploy MFA');
     });
   });
 });

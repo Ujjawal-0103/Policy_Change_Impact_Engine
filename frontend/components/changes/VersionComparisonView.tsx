@@ -1,8 +1,9 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import Link from 'next/link';
 import { api, ApiError } from '@/lib/api';
-import type { Policy, PolicyComparisonResponse, PolicyChange, ChangeType } from '@/types';
+import type { Policy, PolicyComparisonResponse, PolicyChange, ChangeType, Impact } from '@/types';
 import { ChangeSummaryCards } from './ChangeSummaryCards';
 import { ChangeFilterBar } from './ChangeFilterBar';
 
@@ -24,6 +25,7 @@ export function VersionComparisonView({
 
   const [isLoadingPolicies, setIsLoadingPolicies] = useState(true);
   const [isComparing, setIsComparing] = useState(false);
+  const [analyzingChangeId, setAnalyzingChangeId] = useState<string | null>(null);
   const [comparisonResult, setComparisonResult] = useState<PolicyComparisonResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +100,15 @@ export function VersionComparisonView({
     setIsComparing(true);
     setError(null);
 
+    // Sync URL for deep-linking and browser reload survival
+    if (typeof window !== 'undefined') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('policyId', selectedPolicyId);
+      url.searchParams.set('fromVersionId', fromId);
+      url.searchParams.set('toVersionId', toId);
+      window.history.replaceState(null, '', url.toString());
+    }
+
     try {
       const result = await api.post<PolicyComparisonResponse>('/policies/compare', {
         fromVersionId: fromId,
@@ -109,6 +120,27 @@ export function VersionComparisonView({
       setError(err instanceof ApiError ? err.message : 'Comparison engine failed.');
     } finally {
       setIsComparing(false);
+    }
+  };
+
+  const handleAnalyzeImpact = async (changeId: string) => {
+    setAnalyzingChangeId(changeId);
+    try {
+      const impacts = await api.post<Impact[]>(`/impact/analyze/change/${changeId}`);
+      // Update local comparison result with fresh impacts
+      setComparisonResult((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          changes: prev.changes.map((c) =>
+            c.id === changeId ? { ...c, impacts } : c,
+          ),
+        };
+      });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to analyze impact.');
+    } finally {
+      setAnalyzingChangeId(null);
     }
   };
 
@@ -575,7 +607,7 @@ export function VersionComparisonView({
                   )}
 
                   {/* Impact Analysis Section */}
-                  {change.impacts && change.impacts.length > 0 && (
+                  {change.impacts && change.impacts.length > 0 ? (
                     <div
                       style={{
                         marginTop: '0.75rem',
@@ -585,52 +617,118 @@ export function VersionComparisonView({
                         borderRadius: '0.5rem',
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.375rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: '#7e22ce', textTransform: 'uppercase', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                          ⚡ Impact Analysis
+                          ⚡ Impact Analysis ({change.impacts.length})
                         </span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
-                          {change.impacts.map((imp) => {
-                            const sevBg = imp.severity === 'CRITICAL' ? '#fee2e2' : imp.severity === 'HIGH' ? '#ffedd5' : imp.severity === 'LOW' ? '#f1f5f9' : '#dbeafe';
-                            const sevColor = imp.severity === 'CRITICAL' ? '#991b1b' : imp.severity === 'HIGH' ? '#c2410c' : imp.severity === 'LOW' ? '#475569' : '#1e40af';
-                            const statBg = imp.status === 'MITIGATED' ? '#dcfce7' : imp.status === 'ASSESSED' ? '#e0f2fe' : imp.status === 'ACCEPTED' ? '#f1f5f9' : '#ede9fe';
-                            const statColor = imp.status === 'MITIGATED' ? '#166534' : imp.status === 'ASSESSED' ? '#075985' : imp.status === 'ACCEPTED' ? '#475569' : '#5b21b6';
-                            return (
-                              <React.Fragment key={imp.id}>
-                                <span
-                                  style={{
-                                    fontSize: '0.6875rem',
-                                    fontWeight: 700,
-                                    padding: '0.125rem 0.5rem',
-                                    borderRadius: '0.25rem',
-                                    backgroundColor: sevBg,
-                                    color: sevColor,
-                                  }}
-                                >
-                                  SEVERITY: {imp.severity}
-                                </span>
-                                <span
-                                  style={{
-                                    fontSize: '0.6875rem',
-                                    fontWeight: 700,
-                                    padding: '0.125rem 0.5rem',
-                                    borderRadius: '0.25rem',
-                                    backgroundColor: statBg,
-                                    color: statColor,
-                                  }}
-                                >
-                                  STATUS: {imp.status}
-                                </span>
-                              </React.Fragment>
-                            );
-                          })}
-                        </div>
+                        {change.impacts[0] && (
+                          <Link
+                            href={`/impact?impactId=${change.impacts[0].id}&policyId=${selectedPolicyId}`}
+                            style={{
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              color: '#7e22ce',
+                              textDecoration: 'none',
+                              backgroundColor: '#f3e8ff',
+                              padding: '0.25rem 0.625rem',
+                              borderRadius: '0.375rem',
+                              border: '1px solid #e9d5ff',
+                            }}
+                          >
+                            View Impact Details ➔
+                          </Link>
+                        )}
                       </div>
-                      {change.impacts.map((imp) => (
-                        <p key={imp.id} style={{ fontSize: '0.8125rem', color: '#581c87', margin: 0, lineHeight: 1.4 }}>
-                          {imp.description}
-                        </p>
-                      ))}
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        {change.impacts.map((imp) => {
+                          const sevBg = imp.severity === 'CRITICAL' ? '#fee2e2' : imp.severity === 'HIGH' ? '#ffedd5' : imp.severity === 'LOW' ? '#f1f5f9' : '#dbeafe';
+                          const sevColor = imp.severity === 'CRITICAL' ? '#991b1b' : imp.severity === 'HIGH' ? '#c2410c' : imp.severity === 'LOW' ? '#475569' : '#1e40af';
+                          const statBg = imp.status === 'MITIGATED' ? '#dcfce7' : imp.status === 'ASSESSED' ? '#e0f2fe' : imp.status === 'ACCEPTED' ? '#f1f5f9' : '#ede9fe';
+                          const statColor = imp.status === 'MITIGATED' ? '#166534' : imp.status === 'ASSESSED' ? '#075985' : imp.status === 'ACCEPTED' ? '#475569' : '#5b21b6';
+
+                          return (
+                            <div
+                              key={imp.id}
+                              style={{
+                                backgroundColor: '#ffffff',
+                                border: '1px solid #e9d5ff',
+                                borderRadius: '0.375rem',
+                                padding: '0.625rem 0.75rem',
+                              }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', marginBottom: '0.25rem' }}>
+                                <div style={{ display: 'flex', gap: '0.375rem' }}>
+                                  <span style={{ fontSize: '0.6875rem', fontWeight: 700, padding: '0.0625rem 0.375rem', borderRadius: '0.25rem', backgroundColor: sevBg, color: sevColor }}>
+                                    {imp.severity}
+                                  </span>
+                                  <span style={{ fontSize: '0.6875rem', fontWeight: 700, padding: '0.0625rem 0.375rem', borderRadius: '0.25rem', backgroundColor: statBg, color: statColor }}>
+                                    {imp.status}
+                                  </span>
+                                </div>
+                                <Link
+                                  href={`/impact?impactId=${imp.id}&policyId=${selectedPolicyId}`}
+                                  style={{ fontSize: '0.6875rem', color: '#7e22ce', textDecoration: 'none', fontWeight: 600 }}
+                                >
+                                  Open in Impact Matrix ↗
+                                </Link>
+                              </div>
+                              <p style={{ fontSize: '0.8125rem', color: '#334155', margin: '0 0 0.25rem 0', lineHeight: 1.4 }}>
+                                {imp.description}
+                              </p>
+                              {imp.reason && (
+                                <p style={{ fontSize: '0.75rem', color: '#6b21a8', margin: '0 0 0.25rem 0', fontStyle: 'italic' }}>
+                                  {imp.reason}
+                                </p>
+                              )}
+                              {imp.requirement && (
+                                <div style={{ fontSize: '0.6875rem', color: '#047857', marginTop: '0.25rem', fontWeight: 600 }}>
+                                  📋 Requirement: {imp.requirement.title}
+                                </div>
+                              )}
+                              {imp.action && (
+                                <div style={{ fontSize: '0.6875rem', color: '#0369a1', marginTop: '0.125rem', fontWeight: 600 }}>
+                                  🎯 Action: {imp.action.title} {imp.action.assignedTo ? `(👤 ${imp.action.assignedTo.name})` : ''}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        marginTop: '0.75rem',
+                        padding: '0.75rem 1rem',
+                        backgroundColor: '#f8fafc',
+                        border: '1px dashed #cbd5e1',
+                        borderRadius: '0.5rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span style={{ fontSize: '0.8125rem', color: '#64748b' }}>
+                        No impact assessment generated yet for this change.
+                      </span>
+                      <button
+                        type="button"
+                        disabled={analyzingChangeId === change.id}
+                        onClick={() => handleAnalyzeImpact(change.id)}
+                        style={{
+                          padding: '0.375rem 0.75rem',
+                          backgroundColor: '#7c3aed',
+                          color: '#ffffff',
+                          border: 'none',
+                          borderRadius: '0.375rem',
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {analyzingChangeId === change.id ? 'Analyzing...' : '⚡ Analyze Impact'}
+                      </button>
                     </div>
                   )}
                 </div>

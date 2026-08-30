@@ -275,4 +275,42 @@ describe('ActionsService', () => {
       expect(stats.byPriority.LOW).toBe(1);
     });
   });
+
+  describe('findAll & findOne with Upstream Traceability', () => {
+    it('findOne returns action with requirement, policyVersion, and impacts', async () => {
+      const mockActionWithTraceability = {
+        id: 'action_1',
+        title: 'Deploy Hardware MFA',
+        department: 'IT Security',
+        requirement: {
+          id: 'req_1',
+          title: 'MFA Enforcement',
+          policyVersion: {
+            id: 'ver_1',
+            versionNumber: 1,
+            policy: { id: 'pol_1', name: 'InfoSec Standard', orgId: 'org_1' },
+          },
+        },
+        impacts: [
+          {
+            id: 'imp_1',
+            severity: 'CRITICAL',
+            status: 'IDENTIFIED',
+            policyChange: {
+              id: 'pc_1',
+              changeType: 'MODIFIED',
+              description: 'MFA mandate accelerated',
+            },
+          },
+        ],
+      };
+
+      mockPrisma.action.findUnique.mockResolvedValue(mockActionWithTraceability);
+
+      const action = await service.findOne('action_1', 'org_1');
+      expect(action.requirement.policyVersion.policy.name).toBe('InfoSec Standard');
+      expect(action.impacts[0].severity).toBe('CRITICAL');
+      expect(action.impacts[0].policyChange.description).toBe('MFA mandate accelerated');
+    });
+  });
 });

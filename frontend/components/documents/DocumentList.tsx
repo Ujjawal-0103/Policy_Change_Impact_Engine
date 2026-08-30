@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import type { Document, DocumentAnalysisResponse } from '@/types';
 import { api, ApiError } from '@/lib/api';
 import { DocumentAnalysisModal } from './DocumentAnalysisModal';
@@ -268,6 +269,28 @@ export function DocumentList({
                           <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: '0.125rem' }}>
                             {doc.originalName}
                           </div>
+                          {doc.policyVersions && doc.policyVersions.length > 0 && doc.policyVersions[0]?.policy && (
+                            <div style={{ marginTop: '0.375rem' }}>
+                              <Link
+                                href={`/policies?policyId=${doc.policyVersions[0].policyId}`}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '0.25rem',
+                                  fontSize: '0.6875rem',
+                                  fontWeight: 600,
+                                  color: '#2563eb',
+                                  backgroundColor: '#eff6ff',
+                                  border: '1px solid #bfdbfe',
+                                  borderRadius: '0.25rem',
+                                  padding: '0.125rem 0.375rem',
+                                  textDecoration: 'none',
+                                }}
+                              >
+                                🏛️ {doc.policyVersions[0].policy.name} (v{doc.policyVersions[0].versionNumber}) ↗
+                              </Link>
+                            </div>
+                          )}
                         </td>
 
                         <td style={{ padding: '0.875rem 1rem' }}>
