@@ -127,6 +127,7 @@ model Requirement {
 
   policyVersion PolicyVersion @relation(fields: [policyVersionId], references: [id], onDelete: Cascade)
   actions       Action[]
+  impacts       Impact[]
 }
 
 enum Priority {
@@ -155,6 +156,7 @@ model Action {
   history      ActionHistory[]
   dependencies ActionDependency[] @relation("ActionDeps")
   dependents   ActionDependency[] @relation("DependentActions")
+  impacts      Impact[]
 }
 
 enum ActionStatus {
@@ -222,13 +224,18 @@ enum ChangeType {
 model Impact {
   id             String         @id @default(cuid())
   policyChangeId String
+  requirementId  String?
+  actionId       String?
   description    String         @db.Text
+  reason         String?        @db.Text
   severity       ImpactSeverity @default(MEDIUM)
   status         ImpactStatus   @default(IDENTIFIED)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
   policyChange PolicyChange @relation(fields: [policyChangeId], references: [id], onDelete: Cascade)
+  requirement  Requirement? @relation(fields: [requirementId], references: [id], onDelete: SetNull)
+  action       Action?      @relation(fields: [actionId], references: [id], onDelete: SetNull)
 }
 
 enum ImpactSeverity {

@@ -17,6 +17,7 @@ import {
   ImpactStatus,
 } from '@prisma/client';
 import { ComparisonChangeType } from '../ai/dto/compare-result.dto.js';
+import { ImpactService } from '../impact/impact.service.js';
 
 @Injectable()
 export class PoliciesService {
@@ -25,6 +26,7 @@ export class PoliciesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly aiService: AiService,
+    private readonly impactService?: ImpactService,
   ) {}
 
   /**
@@ -529,7 +531,7 @@ export class PoliciesService {
     });
 
     const persistedChanges = await Promise.all(
-      detectedChanges.map((change) => {
+      detectedChanges.map(async (change) => {
         let changeTypeEnum: ChangeType = ChangeType.MODIFIED;
         if (change.changeType === ComparisonChangeType.ADDED) changeTypeEnum = ChangeType.ADDED;
         else if (change.changeType === ComparisonChangeType.REMOVED) changeTypeEnum = ChangeType.REMOVED;
@@ -542,7 +544,7 @@ export class PoliciesService {
 
         const impactDesc = `Operational and compliance impact for ${changeTypeEnum.toLowerCase()} ${change.fieldChanged || 'requirement'}: ${change.description}`;
 
-        return this.prisma.policyChange.create({
+        const createdChange = await this.prisma.policyChange.create({
           data: {
             policyId,
             fromVersionId: fromVersion.id,
@@ -569,6 +571,23 @@ export class PoliciesService {
             impacts: true,
           },
         });
+
+        if (this.impactService) {
+          try {
+            await this.impactService.analyzePolicyChange(createdChange.id, orgId);
+          } catch (err: any) {
+            this.logger.warn(`Failed to auto-run impact analysis for change ${createdChange.id}: ${err?.message}`);
+          }
+        }
+
+        const fresh = await this.prisma.policyChange.findUnique({
+          where: { id: createdChange.id },
+          include: {
+            impacts: true,
+          },
+        });
+
+        return (fresh || createdChange) as typeof createdChange;
       }),
     );
 

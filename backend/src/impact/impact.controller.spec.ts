@@ -18,7 +18,10 @@ describe('ImpactController', () => {
   const mockImpactService = {
     getImpacts: vi.fn(),
     findAll: vi.fn(),
+    getStats: vi.fn(),
     getImpactById: vi.fn(),
+    analyzePolicyChange: vi.fn(),
+    analyzePolicyVersions: vi.fn(),
     updateImpactStatus: vi.fn(),
   };
 
@@ -50,12 +53,33 @@ describe('ImpactController', () => {
     const mockImpacts: any[] = [];
     mockImpactService.findAll.mockResolvedValue(mockImpacts);
 
-    const result = await controller.getAllImpacts(mockUser, 'p1', ImpactSeverity.HIGH, ImpactStatus.IDENTIFIED);
-    expect(mockImpactService.findAll).toHaveBeenCalledWith({
+    const filterDto = {
       policyId: 'p1',
       severity: ImpactSeverity.HIGH,
       status: ImpactStatus.IDENTIFIED,
-    }, mockUser.orgId);
+      search: 'audit',
+    };
+
+    const result = await controller.getAllImpacts(mockUser, filterDto);
+    expect(mockImpactService.findAll).toHaveBeenCalledWith(filterDto, mockUser.orgId);
+    expect(result).toEqual(mockImpacts);
+  });
+
+  it('should delegate getImpactStats to service with orgId', async () => {
+    const mockStats = { total: 5, critical: 2 };
+    mockImpactService.getStats.mockResolvedValue(mockStats);
+
+    const result = await controller.getImpactStats(mockUser, 'p1');
+    expect(mockImpactService.getStats).toHaveBeenCalledWith(mockUser.orgId, 'p1');
+    expect(result).toEqual(mockStats);
+  });
+
+  it('should delegate analyzePolicyChange to service with orgId', async () => {
+    const mockImpacts = [{ id: 'imp_new' }];
+    mockImpactService.analyzePolicyChange.mockResolvedValue(mockImpacts);
+
+    const result = await controller.analyzePolicyChange('chg_123', mockUser);
+    expect(mockImpactService.analyzePolicyChange).toHaveBeenCalledWith('chg_123', mockUser.orgId);
     expect(result).toEqual(mockImpacts);
   });
 
@@ -63,7 +87,7 @@ describe('ImpactController', () => {
     const updated = { id: 'imp_1', status: ImpactStatus.MITIGATED };
     mockImpactService.updateImpactStatus.mockResolvedValue(updated);
 
-    const result = await controller.updateImpactStatus('imp_1', ImpactStatus.MITIGATED, mockUser);
+    const result = await controller.updateImpactStatus('imp_1', { status: ImpactStatus.MITIGATED }, mockUser);
     expect(mockImpactService.updateImpactStatus).toHaveBeenCalledWith('imp_1', ImpactStatus.MITIGATED, mockUser.orgId);
     expect(result).toEqual(updated);
   });

@@ -288,9 +288,53 @@ export interface PolicyComparisonResponse {
 
 export interface Impact extends BaseEntity {
   policyChangeId: string;
+  requirementId?: string | null;
+  actionId?: string | null;
   description: string;
+  reason?: string | null;
   severity: ImpactSeverity;
   status: ImpactStatus;
+  policyChange?: PolicyChange;
+  requirement?: {
+    id: string;
+    title: string;
+    description?: string;
+    priority: Priority;
+    deadline: string | null;
+    responsibleRole?: string | null;
+    evidenceNeeded?: string | null;
+    sourcePage?: number | null;
+    actions?: Action[];
+  } | null;
+  action?: {
+    id: string;
+    title: string;
+    description: string;
+    status: ActionStatus;
+    priority: Priority;
+    department?: string | null;
+    assignedToId?: string | null;
+    deadline: string | null;
+    assignedTo?: { id: string; name: string; email: string } | null;
+    evidence?: Evidence[];
+  } | null;
+}
+
+export interface ImpactStats {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  criticalAndHigh: number;
+  byStatus: {
+    identified: number;
+    assessed: number;
+    mitigated: number;
+    accepted: number;
+  };
+  requirementsAffectedCount: number;
+  actionsAffectedCount: number;
 }
 
 // ─── API Response wrappers ───────────────────────────────────────────────────

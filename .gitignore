@@ -40,8 +40,8 @@ Thumbs.db
 *.swp
 *.swo
 
-# Prisma
-backend/prisma/migrations/
+# Backups & Scratch
+scratch/
 
 # Misc
 *.local
