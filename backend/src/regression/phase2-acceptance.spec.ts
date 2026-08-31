@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from 'vitest';
-import { AiService } from '../ai/ai.service';
-import { AuthService } from '../auth/auth.service';
-import { EmailService } from '../email/email.service';
+import { AiService } from '../ai/ai.service.js';
+import { AuthService } from '../auth/auth.service.js';
+import { EmailService } from '../email/email.service.js';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 
@@ -51,7 +51,7 @@ describe('Phase 2 — Hardening, Regression & Demo Acceptance', () => {
       expect(reqs.length).toBeGreaterThanOrEqual(1);
 
       // Verify that every extracted requirement has page-awareness
-      reqs.forEach((r) => {
+      reqs.forEach((r: any) => {
         expect(r.sourcePage).toBeDefined();
         expect(typeof r.sourcePage).toBe('number');
         expect([1, 2]).toContain(r.sourcePage);
