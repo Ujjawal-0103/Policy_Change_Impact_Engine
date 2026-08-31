@@ -1,24 +1,42 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { ApiError } from '@/lib/api';
+import PasswordStrengthMeter, { evaluatePassword } from '@/components/auth/PasswordStrengthMeter';
 
-export default function LoginPage() {
+function LoginForm() {
   const { login, register, isLoading } = useAuth();
+  const searchParams = useSearchParams();
+
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [organizationName, setOrganizationName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('registered') === 'true') {
+      setSuccessMessage('Account created successfully. Please sign in to continue.');
+    }
+  }, [searchParams]);
+
+  const passwordEvaluation = evaluatePassword(password);
+  const isPasswordValid = passwordEvaluation.isComplete;
+  const doPasswordsMatch = Boolean(password && confirmPassword && password === confirmPassword);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setSuccessMessage(null);
     setIsSubmitting(true);
 
     try {
@@ -33,18 +51,29 @@ export default function LoginPage() {
           setIsSubmitting(false);
           return;
         }
-        if (password.length < 6) {
-          setError('Password must be at least 6 characters long.');
+        if (!isPasswordValid) {
+          setError('Password must meet all 5 security requirements before submitting.');
           setIsSubmitting(false);
           return;
         }
-        await register(name.trim(), email.trim(), password, organizationName.trim() || undefined);
+        if (password !== confirmPassword) {
+          setError('Passwords do not match. Please ensure both fields are identical.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        const res = await register(name.trim(), email.trim(), password, organizationName.trim() || undefined);
+        setSuccessMessage(res?.message || 'Account created successfully. Please sign in to continue.');
+        setIsRegisterMode(false);
+        setPassword('');
+        setConfirmPassword('');
       } else {
         if (!email.trim() || !password) {
           setError('Please enter both email and password.');
           setIsSubmitting(false);
           return;
         }
+        // Login does not reject weak/legacy passwords based on the strength meter
         await login(email.trim(), password);
       }
     } catch (err: any) {
@@ -60,6 +89,7 @@ export default function LoginPage() {
 
   const handleDemoLogin = async () => {
     setError(null);
+    setSuccessMessage(null);
     setIsSubmitting(true);
     try {
       await login('admin@policyengine.local', 'admin123');
@@ -85,7 +115,7 @@ export default function LoginPage() {
       <div
         style={{
           width: '100%',
-          maxWidth: '1020px',
+          maxWidth: '1040px',
           display: 'grid',
           gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
           backgroundColor: '#ffffff',
@@ -120,37 +150,13 @@ export default function LoginPage() {
                   justifyContent: 'center',
                   overflow: 'hidden',
                   flexShrink: 0,
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  fontWeight: 800,
+                  fontSize: '1rem',
                 }}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/politrace-logo.png"
-                  alt="PoliTrace"
-                  width={44}
-                  height={44}
-                  style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLElement).style.display = 'none';
-                    const next = e.currentTarget.nextElementSibling as HTMLElement | null;
-                    if (next) next.style.display = 'flex';
-                  }}
-                />
-                <div
-                  style={{
-                    display: 'none',
-                    width: '100%',
-                    height: '100%',
-                    backgroundColor: '#2563eb',
-                    borderRadius: '0.625rem',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#ffffff',
-                    fontWeight: 800,
-                    fontSize: '1rem',
-                  }}
-                >
-                  PT
-                </div>
+                PT
               </div>
 
               <div>
@@ -261,6 +267,28 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {/* Success Banner */}
+          {successMessage && (
+            <div
+              style={{
+                backgroundColor: '#ecfdf5',
+                border: '1px solid #a7f3d0',
+                color: '#065f46',
+                padding: '0.75rem 1rem',
+                borderRadius: '0.375rem',
+                fontSize: '0.8125rem',
+                marginBottom: '1.25rem',
+                lineHeight: 1.4,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.5rem',
+              }}
+            >
+              <span style={{ fontWeight: 800 }}>✓</span>
+              <span>{successMessage}</span>
+            </div>
+          )}
+
           {/* Error Alert */}
           {error && (
             <div
@@ -280,7 +308,7 @@ export default function LoginPage() {
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem' }}>
             {isRegisterMode && (
               <div>
                 <label
@@ -293,7 +321,7 @@ export default function LoginPage() {
                     marginBottom: '0.375rem',
                   }}
                 >
-                  Full Name
+                  Full Name <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 <input
                   id="fullName"
@@ -302,14 +330,14 @@ export default function LoginPage() {
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. Jane Doe"
                   disabled={isSubmitting || isLoading}
+                  required
                   style={{
                     width: '100%',
-                    padding: '0.625rem 0.875rem',
+                    padding: '0.5625rem 0.875rem',
                     borderRadius: '0.375rem',
                     border: '1px solid #cbd5e1',
                     fontSize: '0.875rem',
                     outline: 'none',
-                    transition: 'border-color 0.15s ease',
                   }}
                 />
               </div>
@@ -326,7 +354,7 @@ export default function LoginPage() {
                   marginBottom: '0.375rem',
                 }}
               >
-                Work Email
+                Work Email <span style={{ color: '#ef4444' }}>*</span>
               </label>
               <input
                 id="email"
@@ -336,14 +364,14 @@ export default function LoginPage() {
                 placeholder="name@company.com"
                 autoComplete="email"
                 disabled={isSubmitting || isLoading}
+                required
                 style={{
                   width: '100%',
-                  padding: '0.625rem 0.875rem',
+                  padding: '0.5625rem 0.875rem',
                   borderRadius: '0.375rem',
                   border: '1px solid #cbd5e1',
                   fontSize: '0.875rem',
                   outline: 'none',
-                  transition: 'border-color 0.15s ease',
                 }}
               />
             </div>
@@ -359,7 +387,7 @@ export default function LoginPage() {
                     color: '#334155',
                   }}
                 >
-                  Password
+                  Password <span style={{ color: '#ef4444' }}>*</span>
                 </label>
                 {!isRegisterMode && (
                   <Link
@@ -384,14 +412,14 @@ export default function LoginPage() {
                   placeholder="••••••••"
                   autoComplete={isRegisterMode ? 'new-password' : 'current-password'}
                   disabled={isSubmitting || isLoading}
+                  required
                   style={{
                     width: '100%',
-                    padding: '0.625rem 2.5rem 0.625rem 0.875rem',
+                    padding: '0.5625rem 2.5rem 0.5625rem 0.875rem',
                     borderRadius: '0.375rem',
                     border: '1px solid #cbd5e1',
                     fontSize: '0.875rem',
                     outline: 'none',
-                    transition: 'border-color 0.15s ease',
                   }}
                 />
                 <button
@@ -413,19 +441,88 @@ export default function LoginPage() {
                     justifyContent: 'center',
                   }}
                 >
-                  {showPassword ? (
-                    <svg style={{ width: '1.125rem', height: '1.125rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
-                    </svg>
-                  ) : (
-                    <svg style={{ width: '1.125rem', height: '1.125rem' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.75} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                    </svg>
-                  )}
+                  {showPassword ? '🙈' : '👁️'}
                 </button>
               </div>
+
+              {/* Password Strength Meter */}
+              <PasswordStrengthMeter
+                password={password}
+                showRequirements={isRegisterMode}
+                mode={isRegisterMode ? 'register' : 'login'}
+              />
             </div>
+
+            {isRegisterMode && (
+              <div>
+                <label
+                  htmlFor="confirmPassword"
+                  style={{
+                    display: 'block',
+                    fontSize: '0.8125rem',
+                    fontWeight: 600,
+                    color: '#334155',
+                    marginBottom: '0.375rem',
+                  }}
+                >
+                  Confirm Password <span style={{ color: '#ef4444' }}>*</span>
+                </label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    disabled={isSubmitting || isLoading}
+                    required
+                    style={{
+                      width: '100%',
+                      padding: '0.5625rem 2.5rem 0.5625rem 0.875rem',
+                      borderRadius: '0.375rem',
+                      border: confirmPassword
+                        ? doPasswordsMatch
+                          ? '1px solid #10b981'
+                          : '1px solid #ef4444'
+                        : '1px solid #cbd5e1',
+                      fontSize: '0.875rem',
+                      outline: 'none',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+                    style={{
+                      position: 'absolute',
+                      right: '0.5rem',
+                      top: '50%',
+                      transform: 'translateY(-50%)',
+                      background: 'none',
+                      border: 'none',
+                      color: '#64748b',
+                      cursor: 'pointer',
+                      padding: '0.25rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                    }}
+                  >
+                    {showConfirmPassword ? '🙈' : '👁️'}
+                  </button>
+                </div>
+                {confirmPassword && (
+                  <div style={{ marginTop: '0.25rem', fontSize: '0.75rem', fontWeight: 600 }}>
+                    {doPasswordsMatch ? (
+                      <span style={{ color: '#059669' }}>✓ Passwords match</span>
+                    ) : (
+                      <span style={{ color: '#dc2626' }}>✕ Passwords do not match</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {isRegisterMode && (
               <div>
@@ -450,12 +547,11 @@ export default function LoginPage() {
                   disabled={isSubmitting || isLoading}
                   style={{
                     width: '100%',
-                    padding: '0.625rem 0.875rem',
+                    padding: '0.5625rem 0.875rem',
                     borderRadius: '0.375rem',
                     border: '1px solid #cbd5e1',
                     fontSize: '0.875rem',
                     outline: 'none',
-                    transition: 'border-color 0.15s ease',
                   }}
                 />
               </div>
@@ -463,20 +559,39 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={isSubmitting || isLoading}
+              disabled={
+                isSubmitting ||
+                isLoading ||
+                (isRegisterMode && (!isPasswordValid || !doPasswordsMatch || !name.trim() || !email.trim()))
+              }
               style={{
                 width: '100%',
                 padding: '0.6875rem',
-                backgroundColor: isSubmitting || isLoading ? '#93c5fd' : '#2563eb',
-                color: '#ffffff',
+                backgroundColor:
+                  isSubmitting ||
+                  isLoading ||
+                  (isRegisterMode && (!isPasswordValid || !doPasswordsMatch || !name.trim() || !email.trim()))
+                    ? '#cbd5e1'
+                    : '#2563eb',
+                color:
+                  isSubmitting ||
+                  isLoading ||
+                  (isRegisterMode && (!isPasswordValid || !doPasswordsMatch || !name.trim() || !email.trim()))
+                    ? '#64748b'
+                    : '#ffffff',
                 border: 'none',
                 borderRadius: '0.375rem',
                 fontSize: '0.875rem',
                 fontWeight: 600,
-                cursor: isSubmitting || isLoading ? 'not-allowed' : 'pointer',
+                cursor:
+                  isSubmitting ||
+                  isLoading ||
+                  (isRegisterMode && (!isPasswordValid || !doPasswordsMatch || !name.trim() || !email.trim()))
+                    ? 'not-allowed'
+                    : 'pointer',
                 boxShadow: '0 1px 2px rgba(37, 99, 235, 0.2)',
                 marginTop: '0.5rem',
-                transition: 'background-color 0.15s ease',
+                transition: 'all 0.15s ease',
               }}
             >
               {isSubmitting || isLoading
@@ -499,6 +614,7 @@ export default function LoginPage() {
                   onClick={() => {
                     setIsRegisterMode(false);
                     setError(null);
+                    setSuccessMessage(null);
                   }}
                   style={{
                     background: 'none',
@@ -515,23 +631,16 @@ export default function LoginPage() {
             ) : (
               <>
                 Need a new workspace?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsRegisterMode(true);
-                    setError(null);
-                  }}
+                <Link
+                  href="/register"
                   style={{
-                    background: 'none',
-                    border: 'none',
                     color: '#2563eb',
                     fontWeight: 600,
-                    cursor: 'pointer',
-                    padding: 0,
+                    textDecoration: 'none',
                   }}
                 >
                   Create account
-                </button>
+                </Link>
               </>
             )}
           </div>
@@ -568,5 +677,13 @@ export default function LoginPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', backgroundColor: '#f8fafc' }} />}>
+      <LoginForm />
+    </Suspense>
   );
 }

@@ -23,12 +23,17 @@ interface AuthResponse {
   user: AuthUser;
 }
 
+export interface RegisterResponse {
+  message: string;
+  user: AuthUser;
+}
+
 interface AuthContextType {
   user: AuthUser | null;
   token: string | null;
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string, organizationName?: string) => Promise<void>;
+  register: (name: string, email: string, password: string, organizationName?: string) => Promise<RegisterResponse>;
   logout: () => void;
 }
 
@@ -106,19 +111,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     email: string,
     password: string,
     organizationName?: string,
-  ) => {
+  ): Promise<RegisterResponse> => {
     setIsLoading(true);
     try {
-      const res = await api.post<AuthResponse>('/auth/register', {
+      const res = await api.post<RegisterResponse>('/auth/register', {
         name,
         email,
         password,
         organizationName,
       });
-      setAuthToken(res.accessToken);
-      setToken(res.accessToken);
-      setUser(res.user);
-      router.push('/');
+      // Registration does NOT issue or store a JWT; user must log in manually
+      setAuthToken(null);
+      setToken(null);
+      setUser(null);
+      return res;
     } finally {
       setIsLoading(false);
     }

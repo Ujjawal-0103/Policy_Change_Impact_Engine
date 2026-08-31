@@ -63,12 +63,62 @@ describe('AuthService', () => {
         authService.register({
           name: 'Jane Doe',
           email: 'jane@example.com',
-          password: 'password123',
+          password: 'SecurePassword123!',
         }),
       ).rejects.toThrow(ConflictException);
     });
 
-    it('creates organization and user, and returns signed JWT token', async () => {
+    it('rejects password shorter than 8 characters', async () => {
+      await expect(
+        authService.register({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          password: 'Short1!',
+        }),
+      ).rejects.toThrow(/Password must be at least 8 characters long/);
+    });
+
+    it('rejects password missing uppercase letter', async () => {
+      await expect(
+        authService.register({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          password: 'lowercase123!',
+        }),
+      ).rejects.toThrow(/Password must be at least 8 characters long/);
+    });
+
+    it('rejects password missing lowercase letter', async () => {
+      await expect(
+        authService.register({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          password: 'UPPERCASE123!',
+        }),
+      ).rejects.toThrow(/Password must be at least 8 characters long/);
+    });
+
+    it('rejects password missing number', async () => {
+      await expect(
+        authService.register({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          password: 'PasswordWithoutNum!',
+        }),
+      ).rejects.toThrow(/Password must be at least 8 characters long/);
+    });
+
+    it('rejects password missing special character', async () => {
+      await expect(
+        authService.register({
+          name: 'Jane Doe',
+          email: 'jane@example.com',
+          password: 'Password123NoSpecial',
+        }),
+      ).rejects.toThrow(/Password must be at least 8 characters long/);
+    });
+
+    it('creates organization and user, and returns confirmation message without accessToken', async () => {
       prismaMock.user.findUnique.mockResolvedValue(null);
       prismaMock.organization.findUnique.mockResolvedValue(null);
       prismaMock.organization.create.mockResolvedValue({
@@ -88,11 +138,13 @@ describe('AuthService', () => {
       const result = await authService.register({
         name: 'Jane Doe',
         email: 'jane@example.com',
-        password: 'securePassword123',
+        password: 'SecurePassword123!',
         organizationName: 'Jane Org',
       });
 
-      expect(result.accessToken).toBe('mock_jwt_token_123');
+      // Crucial: registration does NOT issue an access token
+      expect((result as any).accessToken).toBeUndefined();
+      expect(result.message).toBe('Account created successfully. Please sign in.');
       expect(result.user.id).toBe('user_123');
       expect(result.user.orgId).toBe('org_123');
       expect(prismaMock.organization.create).toHaveBeenCalled();
@@ -131,7 +183,7 @@ describe('AuthService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
 
-    it('successfully logs in with valid credentials', async () => {
+    it('successfully logs in with valid credentials and issues JWT token', async () => {
       const password = 'validPassword123';
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -153,6 +205,29 @@ describe('AuthService', () => {
       expect(result.accessToken).toBe('mock_jwt_token_123');
       expect(result.user.email).toBe('user@example.com');
       expect(result.user.orgId).toBe('org_1');
+    });
+
+    it('allows valid login for existing accounts with simple/weak passwords', async () => {
+      const legacySimplePassword = 'admin';
+      const hashedPassword = await bcrypt.hash(legacySimplePassword, 10);
+
+      prismaMock.user.findUnique.mockResolvedValue({
+        id: 'user_legacy',
+        email: 'legacy@example.com',
+        password: hashedPassword,
+        name: 'Legacy User',
+        orgId: 'org_1',
+        createdAt: new Date(),
+        org: { id: 'org_1', name: 'Acme', slug: 'acme' },
+      });
+
+      const result = await authService.login({
+        email: 'legacy@example.com',
+        password: legacySimplePassword,
+      });
+
+      expect(result.accessToken).toBe('mock_jwt_token_123');
+      expect(result.user.email).toBe('legacy@example.com');
     });
 
     it('disables demo admin auto-provisioning in production', async () => {

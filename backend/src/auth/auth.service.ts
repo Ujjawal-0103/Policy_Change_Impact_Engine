@@ -71,8 +71,17 @@ export class AuthService {
 
   /**
    * Registers a new user and creates an isolated Organization.
+   * Does NOT return an accessToken; user must log in manually.
    */
   async register(dto: RegisterDto) {
+    const strongPasswordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).{8,}$/;
+    if (!dto.password || !strongPasswordRegex.test(dto.password)) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long and contain at least one uppercase letter, one lowercase letter, one number, and one special character.',
+      );
+    }
+
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase().trim() },
     });
@@ -131,12 +140,10 @@ export class AuthService {
       },
     });
 
-    const token = this.generateToken(user);
-
     this.logger.log(`New user registered: ${user.email} (Org: ${org.name}, ID: ${org.id})`);
 
     return {
-      accessToken: token,
+      message: 'Account created successfully. Please sign in.',
       user,
     };
   }
