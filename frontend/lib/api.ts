@@ -3,7 +3,18 @@
  * Automatically injects JWT Bearer authentication and handles API errors.
  */
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+const getBaseUrl = (): string => {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '');
+  }
+  if (typeof window !== 'undefined' && !window.location.hostname.includes('localhost') && !window.location.hostname.includes('127.0.0.1')) {
+    // Automatic live fallback for deployed environments if build-time variable was omitted
+    return 'https://policy-change-impact-engine.onrender.com';
+  }
+  return 'http://localhost:3001';
+};
+
+const BASE_URL = getBaseUrl();
 
 const TOKEN_KEY = 'pcie_auth_token';
 

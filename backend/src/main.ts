@@ -10,14 +10,29 @@ async function bootstrap() {
   const rawFrontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   const port = configService.get<number>('PORT', 3001);
 
-  // Parse CORS origin: supports single URL or comma-separated URLs
-  const corsOrigin = rawFrontendUrl.includes(',')
-    ? rawFrontendUrl.split(',').map((url) => url.trim()).filter(Boolean)
-    : rawFrontendUrl.trim();
+  // Parse CORS origin: supports single URL, comma-separated URLs, and onrender.com subdomains
+  const configuredOrigins = rawFrontendUrl.includes(',')
+    ? rawFrontendUrl.split(',').map((url) => url.trim().replace(/\/$/, '')).filter(Boolean)
+    : [rawFrontendUrl.trim().replace(/\/$/, '')];
 
   // CORS — allow the Next.js frontend to communicate with this backend
   app.enableCors({
-    origin: corsOrigin,
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (e.g. mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+      
+      const normalizedOrigin = origin.replace(/\/$/, '');
+      const isAllowed =
+        configuredOrigins.includes(normalizedOrigin) ||
+        normalizedOrigin.endsWith('.onrender.com') ||
+        normalizedOrigin.includes('localhost') ||
+        normalizedOrigin.includes('127.0.0.1');
+
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
