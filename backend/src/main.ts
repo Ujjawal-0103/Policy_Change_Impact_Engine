@@ -7,12 +7,17 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   const configService = app.get(ConfigService);
-  const frontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
+  const rawFrontendUrl = configService.get<string>('FRONTEND_URL', 'http://localhost:3000');
   const port = configService.get<number>('PORT', 3001);
+
+  // Parse CORS origin: supports single URL or comma-separated URLs
+  const corsOrigin = rawFrontendUrl.includes(',')
+    ? rawFrontendUrl.split(',').map((url) => url.trim()).filter(Boolean)
+    : rawFrontendUrl.trim();
 
   // CORS — allow the Next.js frontend to communicate with this backend
   app.enableCors({
-    origin: frontendUrl,
+    origin: corsOrigin,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -27,8 +32,9 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(port);
-  console.log(`🚀 Policy Change Impact Engine backend running on port ${port}`);
+  // Bind to 0.0.0.0 for containerized and cloud platform hosting
+  await app.listen(port, '0.0.0.0');
+  console.log(`🚀 Policy Change Impact Engine backend running on http://0.0.0.0:${port}`);
 }
 
 await bootstrap();
