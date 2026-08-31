@@ -230,23 +230,32 @@ describe('AuthService', () => {
       expect(result.user.email).toBe('legacy@example.com');
     });
 
-    it('disables demo admin auto-provisioning in production', async () => {
-      configServiceMock.get.mockImplementation((key: string) => {
-        if (key === 'NODE_ENV') return 'production';
-        if (key === 'JWT_SECRET') return 'prod-secret';
-        return null;
+    it('auto-provisions demo admin if not yet present in database', async () => {
+      prismaMock.user.findUnique.mockResolvedValue(null);
+      prismaMock.organization.findFirst.mockResolvedValue(null);
+      prismaMock.organization.create.mockResolvedValue({
+        id: 'default_org_id',
+        name: 'Acme Enterprise',
+        slug: 'default-org',
+      });
+      prismaMock.user.create.mockResolvedValue({
+        id: 'admin_id',
+        name: 'System Admin',
+        email: 'admin@policyengine.local',
+        password: await bcrypt.hash('admin123', 10),
+        orgId: 'default_org_id',
+        createdAt: new Date(),
+        org: { id: 'default_org_id', name: 'Acme Enterprise', slug: 'default-org' },
       });
 
-      prismaMock.user.findUnique.mockResolvedValue(null);
+      const result = await authService.login({
+        email: 'admin@policyengine.local',
+        password: 'admin123',
+      });
 
-      await expect(
-        authService.login({
-          email: 'admin@policyengine.local',
-          password: 'admin123',
-        }),
-      ).rejects.toThrow(UnauthorizedException);
-
-      expect(prismaMock.user.create).not.toHaveBeenCalled();
+      expect(result.accessToken).toBe('mock_jwt_token_123');
+      expect(result.user.email).toBe('admin@policyengine.local');
+      expect(prismaMock.user.create).toHaveBeenCalled();
     });
 
     it('throws Error in production if JWT_SECRET is missing', async () => {

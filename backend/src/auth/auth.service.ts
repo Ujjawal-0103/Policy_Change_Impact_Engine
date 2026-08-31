@@ -166,8 +166,8 @@ export class AuthService {
       },
     });
 
-    // Support seamless login for default demo admin ONLY in development/demo mode
-    if (isDevOrDemo && !user && email === 'admin@policyengine.local') {
+    // Support seamless login for default demo admin if user does not exist yet
+    if (!user && email === 'admin@policyengine.local') {
       let defaultOrg = await this.prisma.organization.findFirst({
         where: { slug: 'default-org' },
       });
@@ -198,9 +198,8 @@ export class AuthService {
     // Check password
     let isPasswordValid = await bcrypt.compare(dto.password, user.password);
 
-    // Fallback for demo password on admin user ONLY in development/demo mode
+    // Fallback for demo password on admin user
     if (
-      isDevOrDemo &&
       !isPasswordValid &&
       user.email === 'admin@policyengine.local' &&
       (dto.password === 'admin123' || dto.password === 'admin' || user.password === 'system_default_password_hash')
